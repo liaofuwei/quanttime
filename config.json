@@ -1,0 +1,5 @@
+{
+    "security_data_dir": "E:\\quanttime\\data\\security_raw", 
+    "root_dir": "C:\\quanttime",
+	"src_dir": "C:\\quanttime\\src"
+}
