@@ -14,6 +14,7 @@ import time, requests, os, xlrd, sys
 from datetime import timedelta, date, datetime
 import tushare as ts
 import calendar
+from dateutil.parser import parse
 
 pd.set_option('precision', 3)
 auth('13811866763',"sam155") #jqdata 授权
@@ -24,12 +25,17 @@ pro = ts.pro_api(token)#ts 授权
 
 '''
 1、各种指数历史数据的维护，目前包括申万指数，以及joinquant中含括的600多个指数
-2、存储目录：申万--C:\quanttime\data\index\sw  聚宽--C:\quanttime\data\index\jq
+2、存储目录：申万--C:\quanttime\data\index\sw  聚宽--C:\quanttime\data\index\jq tushare--C:\quanttime\data\index\\tushare
 3、命名按照指数的code命名
 4、程序能够自动识别最后更新的日期，按照最后的日期自动更新,更新的日期为yesterday
 5、申万指数采用的是opendatatools库
 6、20181207 增加指数的估值数据，数据存储于C:\quanttime\data\index\index_valuation，按照指数命名如：399975.XSHE。csv
 7、20181214 运行正常，增加日志功能，日志存放在C:\\quanttime\\log\\index_maintenance.log
+update_jq_index
+update_sw_index
+get_tushare_index
+maintenance_index_valuation
+get_index_weights_from_jq
 '''
 
 
@@ -151,6 +157,71 @@ def update_sw_index():
     print("this time update failed code:%r"%update_failed_code_list)
 #=====================================================================================================================
 
+def get_tushare_index():
+    '''
+    功能：获取tushare的大盘指数信息，目前包括上证指数，深证指数，上证50，中证500，中小板指，创业板的每日指标数据
+
+    :return:
+    '''
+    ts_code_list = ["000001.SH", "000300.SH", "000905.SH", "399001.SZ", "399005.SZ", "399006.SZ", "399016.SZ",
+                    "399300.SZ"]
+    file_basic_path = "C:\\quanttime\\data\\index\\tushare\\"
+    for index in ts_code_list:
+        file_path = file_basic_path + index + '.csv'
+        if os.path.exists(file_path):
+            print("%r begin to update %r, 是增量更新"%(datetime.today().date().strftime("%Y-%m-%d"), index))
+            logging.debug("%r begin to update %r, 是增量更新"%(datetime.today().date().strftime("%Y-%m-%d"), index))
+            df_index = pd.read_csv(file_path, index_col=["trade_date"])
+            yesterday = datetime.today().date() - timedelta(days=1)
+            end_date = get_close_trade_date(yesterday.strftime("%Y-%m-%d"), -1)
+
+            if '/' in df_index.index[len(df_index.index)-1]:
+                file_end_date = datetime.strptime(df_index.index[len(df_index.index) - 1], "%Y/%m/%d")
+            if '-' in df_index.index[len(df_index.index)-1]:
+                file_end_date = datetime.strptime(df_index.index[len(df_index.index)-1], "%Y-%m-%d")
+            if file_end_date.date() >= yesterday:
+                logging.debug("index code:%r valuation already update new,this time need't update"%index)
+                print("index code:%r valuation already update new,this time need't update"%index)
+                continue
+
+            start = get_close_trade_date(file_end_date.date().strftime("%Y-%m-%d"), 1)
+            tmp_start = start.split('-')
+            if len(tmp_start) != 3:
+                print("get_tushare_index start date(%r) format error "%start)
+                logging.debug("get_tushare_index start date(%r) format error "%start)
+                continue
+            start = tmp_start[0] + tmp_start[1] + tmp_start[2]
+
+            tmp_end = end_date.split('-')
+            if len(tmp_end) != 3:
+                print("get_tushare_index end_date date(%r) format error " % end_date)
+                logging.debug("get_tushare_index end_date date(%r) format error " % end_date)
+                continue
+            end_date = tmp_end[0] + tmp_end[1] + tmp_end[2]
+
+            df_index = pro.index_dailybasic(ts_code=index, start_date=start, end_date=end_date)
+            df_index["trade_date"] = df_index["trade_date"].map(lambda x: parse(x).date().strftime('%Y-%m-%d'))
+            df_index = df_index.sort_index(ascending=False)
+            df_index = df_index.set_index("trade_date")
+            df_index.to_csv(file_path, mode='a', header=None)
+            print("%r update end" % index)
+            logging.debug("%r update end" % index)
+        else:
+            print("%r begin to update %r, create file" % (datetime.today().date().strftime("%Y-%m-%d"), index))
+            logging.debug("%r begin to update %r, create file" % (datetime.today().date().strftime("%Y-%m-%d"), index))
+            df_index1 = pro.index_dailybasic(ts_code=index, start_date="20040104", end_date="20141231")
+            df_index2 = pro.index_dailybasic(ts_code=index, start_date="20150104", end_date="20181231")
+            #tushare 按照日期降序排列，即最新的日期在最前面
+            df_index = pd.concat([df_index2,df_index1])
+            df_index["trade_date"] = df_index["trade_date"].map(lambda x: parse(x).date().strftime('%Y-%m-%d'))
+            df_index = df_index.sort_index(ascending=False)
+            df_index = df_index.set_index("trade_date")
+            df_index.to_csv(file_path)
+            print("%r create and get data end"%index)
+            logging.debug("%r create and get data end"%index)
+
+
+#=====================================================================================================================
 
 #所有指数信息，可通过get_all_securities(types=['index'], date=None)实时获取，同时该信息也存在本地，路径如下
 '''
@@ -479,5 +550,6 @@ def get_trade_list(startDate, endDate):
 if __name__ == "__main__":
     #update_jq_index()
     ##update_sw_index()
-    maintenance_index_valuation()
+    #maintenance_index_valuation()
     #get_index_weights_from_jq()
+    get_tushare_index()
