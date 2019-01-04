@@ -222,6 +222,37 @@ def get_tushare_index():
 
 
 #=====================================================================================================================
+def tushare_index_PEPB_info():
+    '''
+    功能：tushare只提供了目前只提供了大盘指数，该指数由本程序中get_tushare_index函数维护，本函数主要是将tushare的格式转换后按照date，pe，pb
+    的格式存储
+    tushare数据存放地址：C:\\quanttime\\data\\index\\tushare\\
+    目标存储地址：C:\quanttime\data\index\index_valuation\\
+    每次完成get_tushare_index，即调用该函数
+
+    :return:无
+    '''
+    ts_code_list = ["000001.SH", "000300.SH", "000905.SH", "399001.SZ", "399005.SZ", "399006.SZ", "399016.SZ",
+                    "399300.SZ"]
+    file_basic_path = "C:\\quanttime\\data\\index\\tushare\\"
+    dest_basic_path = "C:\\quanttime\\data\\index\\index_valuation\\"
+    for ts_code in ts_code_list:
+        file_path = file_basic_path + ts_code + ".csv"
+        ts_df = pd.read_csv(file_path,index_col=['trade_date'], usecols=["trade_date","pe","pb"])
+        ts_df.index.name = "date"
+        ts_df = ts_df.rename(columns={"pe":"PE","pb":"PB"})
+        if "SH" in ts_code:
+            ts_code = ts_code[0:7] + "XSHG"
+        if "SZ" in ts_code:
+            ts_code = ts_code[0:7] + "XSHE"
+        dest_file_path = dest_basic_path + ts_code + ".csv"
+        ts_df.to_csv(dest_file_path)
+        print("提取index:%r pepb end"%ts_code)
+
+
+
+
+#=====================================================================================================================
 
 #所有指数信息，可通过get_all_securities(types=['index'], date=None)实时获取，同时该信息也存在本地，路径如下
 '''
@@ -306,6 +337,9 @@ def get_index_pe_pb(code, start_date=None, end_date=None):
         return
 
     dates = get_trade_list(start_date, end_date)
+    if len(dates)==0:
+        print("index: %r,get_trade_list ==0 check! "%code)
+        logging.warning("index: %r,get_trade_list ==0 check! "%code)
 
     pe_list = []
     pb_list = []
@@ -345,6 +379,8 @@ def calc_PE_PB_date(code, date):
         logging.warning("index code: % in date:%r 获取成分股返回空"%(code,date))
     pe_list = []
     pb_list = []
+    pe_counter = 0
+    pb_counter = 0
     for stock in stocks:
         stock_path = data_dir + str(stock) + ".csv"
         try:
@@ -359,18 +395,20 @@ def calc_PE_PB_date(code, date):
             #剔除了pb，pe的负值
             if pb_value <=0 :
                 logging.debug("%r code: %r, pb<=0:( %r) " % (date, stock, pb_value))
-                print("%r code: %r, pb<=0:( %r) " % (date, stock, pb_value))
+                #print("%r code: %r, pb<=0:( %r) " % (date, stock, pb_value))
+                pb_counter = pb_counter + 1
                 continue
             pb_list.append(pb_value)
             if pe_value <=0 :
                 logging.debug("%r code: %r, pe<=0:( %r) " % (date, stock, pe_value))
-                print("%r code: %r, pe<=0:( %r) " % (date, stock, pe_value))
+                #print("%r code: %r, pe<=0:( %r) " % (date, stock, pe_value))
+                pe_counter = pe_counter + 1
                 continue
             pe_list.append(pe_value)
 
         except:
             logging.warning("code: %r, in %r 缺少对应的pe，pb数据"%(stock,date))
-            print("%r code: %r, in %r 缺少对应的pe，pb数据"%(date, stock, date))
+            #print("%r code: %r, in %r 缺少对应的pe，pb数据"%(date, stock, date))
             #return [float('NaN'), float('NaN')]
     if len(pe_list) > 0:
         pe_mean = round(sum(pe_list)/len(pe_list), 2)
@@ -381,6 +419,13 @@ def calc_PE_PB_date(code, date):
         pb_mean = round(sum(pb_list)/len(pb_list), 2)
     else:
         pb_mean = float('NaN')
+
+    if pb_counter > int(len(pb_list)/2):
+        print("index: %r in %r, PB数据缺失/剔除大于计算总数的一半"%(code,date))
+
+    if pe_counter > int(len(pe_list)/2):
+        print("index: %r in %r, PE数据缺失/剔除大于计算总数的一半"%(code,date))
+
     return [pe_mean, pb_mean]
 
 #=====================================================================================================================
@@ -400,10 +445,13 @@ def calc_index_valuation(stock_list):
     index_all_info_dir = "C:\\quanttime\\data\\basic_info\\index_all_valuation_info.csv"
     index_all_info = pd.read_csv(index_all_info_dir, index_col=["code"], encoding="gbk")
     data_dir = "C:\\quanttime\\data\\finance\\valuation\\"
-    df_valuation_all = pd.DataFrame(columns=["pb_ratio", "pe_ratio"], index=['day'])
-    for code in index_all_info.index:
-        file_path = data_dir + str(code) +'.csv'
-        df_valuation = pd.read_csv(file_path,index_col=['day'], usecols=["day", "pe_ratio", "pb_ratio"])
+
+
+
+
+
+
+
 #=====================================================================================================================
 
 def get_index_weights_from_jq():
@@ -538,13 +586,22 @@ def get_trade_list(startDate, endDate):
     :param endDate: str 该值需要在all_trade_day.csv
     :return: list
     '''
+    print("input startDate:%r,endDate: %r" % (startDate, endDate))
+    if "/" in startDate:
+        startDate = datetime.strptime(startDate,"%Y/%m/%d").strftime("%Y-%m-%d")
+    if "/" in endDate:
+        endDate = datetime.strptime(endDate,"%Y/%m/%d").strftime("%Y-%m-%d")
+
     trade_date = pd.read_csv("C:\\quanttime\\data\\basic_info\\all_trade_day.csv",index_col=["trade_date"])
     try:
         start = trade_date.loc[startDate][0]
+        print("start:%r"%start)
         end = trade_date.loc[endDate][0]
-    except:
+        print("end:%r" % end)
+    except KeyError:
+        print("传入的参数日期不在trade day中")
         return []
-    trade_days = trade_date.iloc[start:end, 0]
+    trade_days = trade_date.iloc[start:end+1, 0]
     return trade_days.index.tolist()
 
 if __name__ == "__main__":
@@ -552,4 +609,8 @@ if __name__ == "__main__":
     ##update_sw_index()
     #maintenance_index_valuation()
     #get_index_weights_from_jq()
-    get_tushare_index()
+    #get_tushare_index()
+    tushare_index_PEPB_info()
+    #tmp = get_close_trade_date("2019-01-03",1)
+    #tmp = get_trade_list("2019-01-03","2019-12-27")
+    #print(tmp)
