@@ -71,6 +71,17 @@ class AUAGRadioTest(object):
         :param strDate:input 日期，如2010-10-10
         :param nDays:往前或者往后的n天,<0 往前推，>0往后推
         :return:统计信息的pd.dataframe
+
+        eg, describe:
+                       compare
+             count	20.000000
+             mean	78.479471
+              std	0.625898
+              min	77.456493
+             25%	77.980835
+             50%	78.401895
+             75%	79.030748
+             max	79.437169
         '''
         inputDate = pd.to_datetime(strDate)
         if nDays < 0:
@@ -89,6 +100,45 @@ class AUAGRadioTest(object):
                 return self.future_data.loc[after_date_1:after_date,["compare"]].describe()
             else:
                 return -1
+
+    def set_buy_sell_value(self, strDate, nDays, long_buyValue, long_sellValue, short_buyValue, short_sellValue):
+        '''
+        获取买入，卖出的基准
+        该基准可调整，如做空金银比时，按照做空金银比最大值的5%分位设置操作起始线，回落到10%分位线卖出，
+        做多金银比按照最小值的5%分位线作为操作起始线，涨到10%分位线卖出
+        :param strDate:input 日期，如2010-10-10
+        :param nDays:往前或者往后的n天,<0 往前推，>0往后推
+        :param long_buyValue:做多买入线
+        :param long_sellValue:做多卖出线
+        :param short_buyValue:做空买入线
+        :param short_sellValue:做空卖出线
+        :return:list 返回一个按照做空买入线，卖出线，做多买入线，卖出线的list
+        '''
+        inputDate = pd.to_datetime(strDate)
+        if nDays < 0:
+            if self.future_data.index.tolist().index(inputDate) + nDays >= 0:
+                pre_date = self.future_data.index[self.future_data.index.tolist().index(inputDate) + nDays]
+                pre_date_1 = self.future_data.index[self.future_data.index.tolist().index(inputDate) -1]
+                #print("input date: %s, stat begin:%s, end:%s" % (strDate, pre_date, pre_date_1))
+                df_stat = self.future_data.loc[pre_date:pre_date_1, ["compare"]]
+                v_5 = df_stat.quantile(long_buyValue).compare #5%分位
+                v_10 = df_stat.quantile(long_sellValue).compare #10%分位
+                v_90 = df_stat.quantile(short_sellValue).compare  # 90%分位
+                v_95 = df_stat.quantile(short_buyValue).compare  # 95%分位
+                return [v_95, v_90, v_5, v_10]
+            else:
+                return []
+        else:
+            return [] #后统计，是不是未来函数，屏蔽不用？？？？？
+            if self.future_data.index.tolist().index(inputDate) + nDays <= len(self.future_data.index) - 1:
+                after_date = self.future_data.index[self.future_data.index.tolist().index(inputDate) + nDays]
+                after_date_1 = self.future_data.index[self.future_data.index.tolist().index(inputDate) + 1]
+                #print("input date: %s, stat begin:%s, end:%s" % (strDate, after_date_1, after_date))
+                return self.future_data.loc[after_date_1:after_date,["compare"]].describe()
+            else:
+                return -1
+
+
 
     def get_close_trade_date(self,strDate):
         '''
@@ -140,15 +190,28 @@ class AUAGRadioTest(object):
         for trade_date in trade_days:
             #df_stat: mean,std,min,25%, 50%,75%,max
             df_stat = self.get_appoint_date_stat_info(trade_date, -20)
+            compare_line = self.set_buy_sell_value(trade_date, -20, 0.10, 0.15, 0.90, 0.85)
+            #print(compare_line)
+            if len(compare_line) != 4:
+                self.log.info("%s, 获取比较线失败，return" % trade_date)
+                continue
             ratio = self.future_data.loc[trade_date, ["compare"]].compare
             print("%s,当前金银比：%f" % (trade_date, ratio))
-            self.log.info("%s,当前金银比：%f" % (trade_date, ratio))
+            self.log.info("\n%s,当前金银比：%f" % (trade_date, ratio))
             # 设置买入卖出比较门限值,通过修改该处值，确定比较上下限值
             #做多金银比
+            '''
+            #按照25%，mean，75%设置的买入卖出线
             long_buy_value = df_stat.loc['25%', ["compare"]].compare #做多金银比时，低于该线买入
             long_sell_value = df_stat.loc['mean', ["compare"]].compare #做多金银比时，高于该线卖出
             short_buy_value = df_stat.loc['75%', ["compare"]].compare #做空金银比时，高于该线买入
             short_sell_value = df_stat.loc['mean', ["compare"]].compare #做空金银比时，低于该线卖出
+            '''
+            #[v_95, v_90, v_5, v_10]排列，注意顺序不要错
+            long_buy_value = compare_line[2]
+            long_sell_value = compare_line[3]
+            short_buy_value = compare_line[0]
+            short_sell_value = compare_line[1]
 
             print("统计20日前，做多金银比，买入线：%f" % long_buy_value)
             print("统计20日前，做多金银比，卖出线：%f" % long_sell_value)
@@ -193,7 +256,7 @@ class AUAGRadioTest(object):
                     self.log.info("卖出黄金：%d 手" % abs(self.position["au"]["amount"]))
                     self.log.info("卖出价格：%f" % self.position["au"]["price"])
                     self.log.info("卖出黄金总金额：%f" % self.position["au"]["totals"])
-                    self.log.info("============================")
+                    self.log.info("============================\n")
                 elif ratio < long_buy_value:
                     #做多金银比，由低比值向均值回归，此时应该卖空silver，买入gold
                     self.position["ag"]["amount"] = -5
@@ -363,7 +426,9 @@ class AUAGRadioTest(object):
 if __name__ == "__main__":
     test = AUAGRadioTest()
     #result = test.get_appoint_date_stat_info("2019-03-11",-20)
+    #result2 = test.set_buy_sell_value("2019-03-11",-20, 0.05, 0.10, 0.95, 0.90)
     #result = test.get_close_trade_date("2019-03-10")
     #print(result)
+    #print(result2)
     #print(type(result))
     test.run_back_test("2016-01-03")
