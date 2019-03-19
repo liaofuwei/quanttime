@@ -15,12 +15,7 @@ import mydefinelib as mylib
 class AUAGRadioTest(object):
 
     def __init__(self):
-        # 初始化日志
-        logging.basicConfig(level=logging.DEBUG,
-                            filename='AUAGTest.log',
-                            datefmt='%Y-%m-%d %H:%M:%S',
-                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        self.log = logging.getLogger("AUAGRadioTest")
+
 
 		#仓位信息
         self.position = {"ag": {"amount": 0, "price": 0, "totals": 0},
@@ -31,13 +26,25 @@ class AUAGRadioTest(object):
 						 "timestamp":"2000-01-01 00:00:00"}
 
         self.loss_limit = 0.01  #设置止损比例
-        self.b_loss_limit = True #true进行止损操作，false不进行止损操作
+        self.b_loss_limit = False #true进行止损操作，false不进行止损操作
         self.back_day_stat = -20  #设置当前日期往前推几天的统计信息
         self.long_buy_value = 0.10  #做多金银比，统计买入线，如0.10即10%分位线
-        self.long_sell_value = 0.15 #做多金银比，统计卖出线，如0.15即15%分位线
+        self.long_sell_value = 0.20 #做多金银比，统计卖出线，如0.15即15%分位线
         self.short_buy_value = 0.90 #做空金银比，统计的买入线，如0.85即85%分位线
-        self.short_sell_value = 0.85 #做空金银比，统计的卖出线
+        self.short_sell_value = 0.80 #做空金银比，统计的卖出线
+        log_name = "AUAGTest_" + str(self.long_buy_value * 100) + "_" + str(self.long_sell_value * 100) + "_" + \
+                   str(self.short_buy_value * 100) + "_" + str(self.short_sell_value * 100) + "_"
+        if self.b_loss_limit:
+            log_name = log_name + 't' + ".log"
+        else:
+            log_name = log_name + 'f' + ".log"
 
+        # 初始化日志
+        logging.basicConfig(level=logging.DEBUG,
+                            filename=log_name,
+                            datefmt='%Y-%m-%d %H:%M:%S',
+                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        self.log = logging.getLogger("AUAGRadioTest")
 
         self.trade_trace_list = [] #交易轨迹记录，元素为self.position
         self.profit_list = []
