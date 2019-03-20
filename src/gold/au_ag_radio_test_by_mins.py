@@ -25,7 +25,7 @@ class AUAGRadioTest(object):
                          "equity":1000000,
 						 "timestamp":"2000-01-01 00:00:00"}
 
-        self.start_back_test = "2016-01-03"
+        self.start_back_test = "2015-01-03"
         self.end_back_test = "2019-3-18"
         self.loss_limit = 0.01  #设置止损比例
         self.b_loss_limit = True #true进行止损操作，false不进行止损操作
@@ -451,10 +451,10 @@ class AUAGRadioTest(object):
             short_buy_value = compare_line[0]
             short_sell_value = compare_line[1]
 
-            self.log.debug("统计20日前，做多金银比，买入线：%f" % long_buy_value)
-            self.log.debug("统计20日前，做多金银比，卖出线：%f" % long_sell_value)
-            self.log.debug("统计20日前，做空金银比，买入线：%f" % short_buy_value)
-            self.log.debug("统计20日前，做空金银比，卖出线：%f" % short_sell_value)
+            self.log.info("统计20日前，做多金银比，买入线：%f" % long_buy_value)
+            self.log.info("统计20日前，做多金银比，卖出线：%f" % long_sell_value)
+            self.log.info("统计20日前，做空金银比，买入线：%f" % short_buy_value)
+            self.log.info("统计20日前，做空金银比，卖出线：%f" % short_sell_value)
 
             df_future_min = self.get_future_mins_trade_data(trade_date)
             if df_future_min.empty:
@@ -462,12 +462,13 @@ class AUAGRadioTest(object):
                 continue
             for trade_min in df_future_min.index:
                 ratio = df_future_min.loc[trade_min, ["compare"]].compare
-                self.log.debug("%s,当前金银比：%f" % (trade_min, ratio))
 
                 if self.position["status"] == "empty":
                     if ratio > short_buy_value:
+                        self.log.info("%s,当前金银比：%f" % (trade_min, ratio))
                         self.open_position(trade_min, -1)
                     elif ratio < long_buy_value:
+                        self.log.info("%s,当前金银比：%f" % (trade_min, ratio))
                         self.open_position(trade_min, 1)
                     else:
                         self.log.debug("trade date:%s do nothing " % trade_min)
@@ -487,8 +488,10 @@ class AUAGRadioTest(object):
                             print("超过设置的最大亏损数额，进行止损操作")
                             self.log.info("超过设置的最大亏损数额，进行止损操作")
                             if au_long and (not ag_long):  # 卖空白银，做多黄金，说明是做多金银比
+                                self.log.info("%s,当前金银比：%f" % (trade_min, ratio))
                                 self.close_position(trade_min, 1)
                             elif not au_long and ag_long:  # 当前为卖空黄金，做多白银，即做空金银比
+                                self.log.info("%s,当前金银比：%f" % (trade_min, ratio))
                                 self.close_position(trade_min, -1)
                             else:
                                 print("error,判断做空做多方向有误")
@@ -498,11 +501,13 @@ class AUAGRadioTest(object):
                     if au_long and (not ag_long):#卖空白银，做多黄金，说明是做多金银比
                         if ratio > long_sell_value: #平仓
                             #买入白银，平空仓
+                            self.log.info("%s,当前金银比：%f" % (trade_min, ratio))
                             self.close_position(trade_min, 1)
                         else:
                             self.log.debug("trade date:%s,没有达到交易门限值，维持仓位不变" % trade_min)
                     elif not au_long and ag_long:#当前为卖空黄金，做多白银，即做空金银比
                         if ratio < short_sell_value: #金银比回落到平仓线,平白银多仓，黄金空仓
+                            self.log.info("%s,当前金银比：%f" % (trade_min, ratio))
                             self.close_position(trade_min, -1)
                         else:
                             self.log.debug("trade date:%s,没有达到交易门限值，维持仓位不变" % trade_min)
@@ -512,7 +517,7 @@ class AUAGRadioTest(object):
                     print("error")
                     continue
 
-        print(self.trade_trace_list)
+        #print(self.trade_trace_list)
         big_than_zero = 0
         less_than_zero = 0
         for i in self.profit_list:
