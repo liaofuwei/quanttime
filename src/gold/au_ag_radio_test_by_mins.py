@@ -25,7 +25,7 @@ class AUAGRadioTest(object):
                          "equity":1000000,
 						 "timestamp":"2000-01-01 00:00:00"}
 
-        self.start_back_test = "2015-01-03"
+        self.start_back_test = "2018-01-03"
         self.end_back_test = "2019-3-18"
         self.loss_limit = 0.01  #设置止损比例
         self.b_loss_limit = True #true进行止损操作，false不进行止损操作
@@ -67,7 +67,8 @@ class AUAGRadioTest(object):
         self.future_data = pd.merge(self.gold_future_data, self.silver_future_data, left_index=True, right_index=True,
                                suffixes=('_gold', '_silver'))
         self.future_data["compare"] = self.future_data["close_gold"] / self.future_data["close_silver"] * 1000
-
+        # 去重
+        self.future_data = self.future_data.dropna()
         #金银合并以后的交易日序列
         self.future_data_trade_date = self.future_data.index
         #print(self.future_data_trade_date[-1])
@@ -85,6 +86,7 @@ class AUAGRadioTest(object):
         self.future_data_mins = pd.merge(self.gold_future_mins_data, self.silver_future_mins_data, left_index=True, right_index=True,
                                     suffixes=('_gold', '_silver'))
         self.future_data_mins["compare"] = self.future_data_mins["close_gold"] / self.future_data_mins["close_silver"] * 1000
+        self.future_data_mins = self.future_data_mins.dropna()
         #print(self.future_data_mins.index)
 #-------------------------------------------------------------------------------------------------------------------
     def get_appoint_date_stat_info(self, strDate, nDays):
@@ -252,7 +254,7 @@ class AUAGRadioTest(object):
 
             self.log.info("                           ")
             self.log.info("============================")
-            self.log.info("平仓交易，trade date:%s" % strDatetime)
+            self.log.info("平仓交易（做多金银比平仓），trade date:%s" % strDatetime)
             self.log.info("买入白银平空：%d 手" % abs(self.position["ag"]["amount"]))
             self.log.info("买入价格：%f, ****前价：%f" % (self.position["ag"]["price"], pre_ag_price))
             self.log.info("买入白银总金额：%f" % self.position["ag"]["totals"])
@@ -288,7 +290,7 @@ class AUAGRadioTest(object):
 
             self.log.info("                           ")
             self.log.info("============================")
-            self.log.info("平仓交易，trade date:%s" % strDatetime)
+            self.log.info("平仓交易（做空金银比平仓），trade date:%s" % strDatetime)
             self.log.info("卖出白银平多：%d 手" % ag_sell_amount)
             self.log.info("卖出价格：%f, 前价：%f" % (self.position["ag"]["price"], pre_ag_price))
             self.log.info("卖出白银总金额：%f" % self.position["ag"]["totals"])
@@ -328,7 +330,7 @@ class AUAGRadioTest(object):
 
             self.log.info("                            ")
             self.log.info("============================")
-            self.log.info("trade date:%s" % strDatetime)
+            self.log.info("开仓交易（做多金银比），trade date:%s" % strDatetime)
             self.log.info("卖出白银：%d 手" % abs(self.position["ag"]["amount"]))
             self.log.info("卖出价格：%f" % self.position["ag"]["price"])
             self.log.info("卖出白银总金额：%f" % self.position["ag"]["totals"])
@@ -356,7 +358,7 @@ class AUAGRadioTest(object):
 
             self.log.info("                            ")
             self.log.info("============================")
-            self.log.info("trade date:%s" % strDatetime)
+            self.log.info("开仓交易（做空金银比），trade date:%s" % strDatetime)
             self.log.info("买入白银：%d 手" % abs(self.position["ag"]["amount"]))
             self.log.info("买入价格：%f" % self.position["ag"]["price"])
             self.log.info("买入白银总金额：%f" % self.position["ag"]["totals"])
@@ -451,10 +453,10 @@ class AUAGRadioTest(object):
             short_buy_value = compare_line[0]
             short_sell_value = compare_line[1]
 
-            self.log.info("统计20日前，做多金银比，买入线：%f" % long_buy_value)
-            self.log.info("统计20日前，做多金银比，卖出线：%f" % long_sell_value)
-            self.log.info("统计20日前，做空金银比，买入线：%f" % short_buy_value)
-            self.log.info("统计20日前，做空金银比，卖出线：%f" % short_sell_value)
+            self.log.debug("统计20日前，做多金银比，买入线：%f" % long_buy_value)
+            self.log.debug("统计20日前，做多金银比，卖出线：%f" % long_sell_value)
+            self.log.debug("统计20日前，做空金银比，买入线：%f" % short_buy_value)
+            self.log.debug("统计20日前，做空金银比，卖出线：%f" % short_sell_value)
 
             df_future_min = self.get_future_mins_trade_data(trade_date)
             if df_future_min.empty:
@@ -520,9 +522,11 @@ class AUAGRadioTest(object):
         #print(self.trade_trace_list)
         big_than_zero = 0
         less_than_zero = 0
+        less_than_zero_list = []
         for i in self.profit_list:
             if i < 0:
                 less_than_zero = less_than_zero + 1
+                less_than_zero_list.append(round(i, 2))
             elif i > 0:
                 big_than_zero = big_than_zero + 1
             else:
@@ -530,6 +534,7 @@ class AUAGRadioTest(object):
 
         self.profit_list = [round(x, 2) for x in self.profit_list]
         self.log.info("最大亏损：%f" % min(self.profit_list))
+        self.log.info("亏损金额list：%r" % less_than_zero_list)
         self.log.info("最大盈利：%f" % max(self.profit_list))
         self.log.info("盈利次数：%d" % big_than_zero)
         self.log.info("亏损次数：%d" % less_than_zero)
