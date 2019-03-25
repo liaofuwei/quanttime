@@ -72,6 +72,11 @@ class AUAGRadioTest(object):
 
         #金银合并以后的交易日序列
         self.future_data_trade_date = self.future_data.index
+
+        #初始化后，计算所有日期的统计信息
+        self.df_stat_all = self.get_all_trade_date_stat_info(self.future_data_trade_date)
+        self.df_stat_all.to_csv("C:\\quanttime\\data\\gold\\sh_future\\stat.csv")
+
         #print(self.future_data_trade_date[-1])
         #print(type(self.future_data_trade_date[-1]))
 
@@ -108,6 +113,8 @@ class AUAGRadioTest(object):
              max	79.437169
         '''
         inputDate = pd.to_datetime(strDate)
+        columns_name = ["count", "mean", "std", "min", "25%", "50%", "75%", "max"]
+        df_empty = pd.DataFrame(columns=columns_name)
         if nDays < 0:
             if self.future_data.index.tolist().index(inputDate) + nDays >= 0:
                 pre_date = self.future_data.index[self.future_data.index.tolist().index(inputDate) + nDays]
@@ -115,7 +122,7 @@ class AUAGRadioTest(object):
                 #print("input date: %s, stat begin:%s, end:%s" % (strDate, pre_date, pre_date_1))
                 return self.future_data.loc[pre_date:pre_date_1, ["compare"]].describe()
             else:
-                return -1
+                return df_empty
         else:
             if self.future_data.index.tolist().index(inputDate) + nDays <= len(self.future_data.index) - 1:
                 after_date = self.future_data.index[self.future_data.index.tolist().index(inputDate) + nDays]
@@ -123,9 +130,35 @@ class AUAGRadioTest(object):
                 #print("input date: %s, stat begin:%s, end:%s" % (strDate, after_date_1, after_date))
                 return self.future_data.loc[after_date_1:after_date,["compare"]].describe()
             else:
-                return -1
+                return df_empty
 
-# -------------------------------------------------------------------------------------------------------------------
+# ----------------------------------------------------------
+    def get_all_trade_date_stat_info(self, trade_days_list):
+        '''
+        获取交易日范围内的所有统计信息,返回一个df
+        :param trade_days_list: 交易日序列，依赖self.future_data_trade_date这个私有成员变量
+        :return: df
+        '''
+        columns_name = ["date", "count", "mean", "std", "min", "25%", "50%", "75%", "max"]
+        data_list = []
+        for trade_date in self.future_data_trade_date:
+            tmp_list = []
+            df_stat = self.get_appoint_date_stat_info(trade_date, self.back_day_stat)
+            if df_stat.empty:
+                continue
+            else:
+                tmp_list = [trade_date,
+                            df_stat.loc["count", ["compare"]].compare, df_stat.loc["mean", ["compare"]].compare,
+                            df_stat.loc["std", ["compare"]].compare, df_stat.loc["min", ["compare"]].compare,
+                            df_stat.loc["25%", ["compare"]].compare, df_stat.loc["50%", ["compare"]].compare,
+                            df_stat.loc["75%", ["compare"]].compare, df_stat.loc["max", ["compare"]].compare]
+                data_list.append(tmp_list)
+        df_describe = pd.DataFrame(data=data_list, columns=columns_name)
+        df_describe = df_describe.set_index("date")
+        df_describe = df_describe.round(2)
+        return df_describe
+
+# ----------------------------------------------------------
     def set_buy_sell_value(self, strDate, nDays, long_buyValue, long_sellValue, short_buyValue, short_sellValue):
         '''
         获取买入，卖出的基准
@@ -527,4 +560,4 @@ if __name__ == "__main__":
     #print(result)
     #print(result2)
     #print(type(result))
-    test.run_back_test()
+    #test.run_back_test()
