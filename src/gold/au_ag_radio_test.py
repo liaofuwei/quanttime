@@ -1,5 +1,5 @@
 #-*-coding:utf-8 -*-
-__author__ = 'Administrator'
+__author__ = 'Administrator1'
 import sys
 
 import tushare as ts
