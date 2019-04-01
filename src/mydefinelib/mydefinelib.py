@@ -70,7 +70,7 @@ def get_trade_list(startDate, endDate):
     :param endDate: str 该值需要在all_trade_day.csv
     :return: list
     '''
-    print("input startDate:%r,endDate: %r" % (startDate, endDate))
+    #print("input startDate:%r,endDate: %r" % (startDate, endDate))
     if "/" in startDate:
         startDate = datetime.strptime(startDate,"%Y/%m/%d").strftime("%Y-%m-%d")
     if "/" in endDate:
@@ -79,9 +79,9 @@ def get_trade_list(startDate, endDate):
     trade_date = pd.read_csv("C:\\quanttime\\data\\basic_info\\all_trade_day.csv",index_col=["trade_date"])
     try:
         start = trade_date.loc[startDate][0]
-        print("start:%r"%start)
+        #print("start:%r"%start)
         end = trade_date.loc[endDate][0]
-        print("end:%r" % end)
+        #print("end:%r" % end)
     except KeyError:
         print("传入的参数日期不在trade day中")
         return []
@@ -170,6 +170,9 @@ def get_trade_date_by_year_month(nYear, nMonth):
     index_end = df_trade_date.index.tolist().index(trade_date_end)
     trade_list = df_trade_date.index.tolist()[index_st:index_end+1]
     return trade_list
+
+#===================================================================================================================
+
 
 
 if __name__ == "__main__":
