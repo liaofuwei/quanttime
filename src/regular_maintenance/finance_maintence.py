@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 
 from futuquant import *
 import logging
+import pymongo
 
 '''
 日常维护使用：
@@ -47,22 +48,25 @@ class financeMaintenance:
         self.stock_info = pd.read_csv(
             "C:\\quanttime\\data\\basic_info\\all_stock_info.csv",
             index_col=["code"],
-            encoding="gbk")
+            encoding="gbk",
+            parse_dates=["start_date", "end_date"])
         # 退市代码，end_time!=2200/1/1
-        stock_code = self.stock_info[self.stock_info["end_date"] == "2200/1/1"]
+        stock_code = self.stock_info[self.stock_info["end_date"] == datetime.strptime("2200-01-01", "%Y-%m-%d")]
         self.stock_code = stock_code.index
         if len(self.stock_code) == 0:
             self.regularlog.warning("stock code is empty,please check!!!")
             sys.exit(0)
 
-        today = datetime.today().date()
-        yesterday = today - timedelta(days=1)
+        yesterday = datetime.today().date() - timedelta(days=1)
         self.end_time = yesterday.strftime("%Y-%m-%d")
 
         self.errorCodeList = []
 
         # jqdata context
         auth('13811866763', "sam155")  # jqdata 授权
+
+        # mongodb client
+        self.mongo_client = pymongo.MongoClient('mongodb://localhost:27017/')
     # ==============================================================================
 
     def batchstanderUpdateFile(self):
@@ -139,7 +143,10 @@ class financeMaintenance:
         valuation_file_path = self.finance_dir + "valuation\\"
 
         update_file = valuation_file_path + str(code) + ".csv"
-        if (os.path.exists(update_file)):
+        tmp_code = code.split(".")[0]
+        finance_db = self.mongo_client["finance_db"]
+        table_data = finance_db[tmp_code]
+        if os.path.exists(update_file):
             valuation_data = pd.read_csv(update_file)
             try:
                 valuation_data = valuation_data[['id',
@@ -157,6 +164,7 @@ class financeMaintenance:
                                                  'pe_ratio_lyr']]
 
                 valuation_data.to_csv(update_file)
+                table_data.insert_many(valuation_data.to_dict(orient="record"))
                 print("stander valuation code:%r" % code)
             except KeyError:
                 print("keyerror code:%r" % code)
@@ -188,6 +196,7 @@ class financeMaintenance:
                     'circulating_market_cap',
                     'pe_ratio_lyr']
                 valuation_data.to_csv(update_file)
+                table_data.insert_many(valuation_data.to_dict(orient="record"))
                 print("keyerror code:%r update end" % code)
 
     # ==============================================================================
@@ -227,8 +236,11 @@ class financeMaintenance:
         如果有新加入的stock，则创建文件
         '''
         valuation_file_path = self.finance_dir + "valuation\\"
+        finance_db = self.mongo_client["finance_db"]
         for code in self.stock_code:
             update_file = valuation_file_path + code + ".csv"
+            tmp_code = code.split(".")[0]
+            table_data = finance_db[tmp_code]
             # print(update_file)
             if os.path.exists(update_file):
                 valuation_data = pd.read_csv(update_file)
@@ -261,11 +273,12 @@ class financeMaintenance:
                             valuation_data = pd.concat(
                                 [valuation_data, df_valuation], sort=False)
                     valuation_data.to_csv(update_file, mode='a', header=None)
+                    table_data.insert_many(valuation_data.to_dict(orient="record"))
                     self.regularlog.info(
-                        "valuation code:%r(souce file empty) update successful" %
+                        "valuation code:%r(source file empty) update successful" %
                         code)
                     print(
-                        "valuation code:%r(souce file empty) update successful" %
+                        "valuation code:%r(source file empty) update successful" %
                         code)
                 else:
                     print("文件存在，增量更新开始，code：%r" % code)
@@ -316,24 +329,27 @@ class financeMaintenance:
                                                  'circulating_market_cap',
                                                  'pe_ratio_lyr']]
                     df_valuation.to_csv(update_file, mode='a', header=None)
+                    table_data.insert_many(valuation_data.to_dict(orient="record"))
                     print("获取数据结束，写入csv的，df_valuation 行数为：%r" % len(df_valuation.index))
                     self.regularlog.info("增量更新 valuation code:%r update successful" % code)
             else:
-                print("需要更新的文件code：% 不存在，创建并获取" % code)
-                start_date = self.stock_info.loc[code, ["start_date"]]
-                # start_date返回是series，要根据index把值取出来，值类型是'2007/3/1'
-                start_time = start_date.start_date
-                tmp_ST = datetime.strptime(start_time, "%Y/%m/%d")
+                print("需要更新的文件code：%s 不存在，创建并获取" % code)
+                # start_date返回是series，要根据index把值取出来，值类型是datetime类型
+                start_date = self.stock_info.loc[code, ["start_date"]].start_date
+
                 # 如果上市时间早于2014-01-01，则从2014年开始获取数据，前面数据不用了
-                if tmp_ST < datetime.strptime("2004-01-01", "%Y-%m-%d"):
-                    start_time = "2006-01-03"
+                if start_date < datetime.strptime("2014-01-01", "%Y-%m-%d"):
+                    start_time = datetime.strptime("2014-01-04", "%Y-%m-%d")
                 else:
-                    # 获取数据按照上市后半年在用
-                    tmp_ST = tmp_ST + timedelta(days=7)
-                    start_time = tmp_ST.strftime("%Y-%m-%d")
+                    # 获取数据按照上市后一个月在用
+                    start_time = start_time + timedelta(days=30)
+                end_time = datetime.today().date() - timedelta(days=1)
+                if start_time.date() <= end_time:
+                    # 取数据的时间比当日的前一天晚
+                    continue
                 q = query(valuation).filter(valuation.code == code)
                 try:
-                    dates = pd.date_range(start_time, self.end_time)
+                    dates = pd.date_range(start_time.date(), end_time)
                 except BaseException:
                     self.errorCodeList.append(code)
                     continue
@@ -368,8 +384,9 @@ class financeMaintenance:
                 valuation_data.to_csv(update_file)
                 # 按格式标准化
                 self.standerSingleUpdateFile(code)
-                self.regularlog.info("valuation code:%r create&update successful" % code)
-                print("valuation code:%r create&update successful" % code)
+
+                self.regularlog.info("valuation code:%s create&update successful" % code)
+                print("valuation code:%s create&update successful" % code)
             if len(self.errorCodeList) > 0:
                 print("error code list:%r" % self.errorCodeList)
             print("update code:%r, end" % code)
