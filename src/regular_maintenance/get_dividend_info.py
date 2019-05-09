@@ -6,7 +6,8 @@ import pandas as pd
 
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
+import time
 
 import logging
 import pymongo
@@ -17,6 +18,7 @@ import tushare as ts
      命名按照code命名，MongoDB新建数据库，名称为dividend，表名为code
      csv的存储路径为：C:\quanttime\data\dividend,考虑到后续增加其他数据来源，该目录下增加子目录tushare
      获取数据的接口：tushare
+一个季度或者到了半年报，年报后运行
 
 '''
 
@@ -109,6 +111,7 @@ class dividend:
             if ts_code.split('.')[0] in tables:
                 table_data.drop()
             table_data.insert_many(df.to_dict(orient="record"))
+            time.sleep(1)
         print("获取tushare分红信息结束")
 
     # ===================================================
@@ -135,6 +138,8 @@ class dividend:
             return "000000"
 
 # ===================================================
+
+
 if __name__ == "__main__":
     regular = dividend()
     regular.get_dividend_by_ts()
