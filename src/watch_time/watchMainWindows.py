@@ -1,15 +1,20 @@
-#-*-coding:utf-8 -*-
+# -*-coding:utf-8 -*-
 __author__ = 'Administrator'
 
-import ui_watch_time as ui
+from ui_watch_time import Ui_dog
 from PyQt5 import QtCore, QtGui, QtWidgets
 import sys
 import os
 import pandas as pd
-import numpy as np
 import tushare as ts
 import math
 import pysnooper
+from bank import BankThread
+from security import SecurityThread
+from gold import ProcessAUAGThread
+from datetime import datetime
+from dialog_index_selected import IndexSelected
+from opendatatools import swindex
 
 '''
 功能：
@@ -17,15 +22,19 @@ import pysnooper
 2、券商估值分析
 '''
 
-class watchMainWindows(object):
-    def __init__(self):
+
+class WatchMainWindows(QtCore.QObject):
+    # 券商分析信号，该信号发送给券商分析业务security.py，包含一个int类型参数，用于表示是否只读取头部券商
+    security_out = QtCore.pyqtSignal(int)
+    # 计算金银比需要的设置参数signal
+    agau_stat_info_out = QtCore.pyqtSignal(list)
+
+    def __init__(self, parent=None):
+        super(WatchMainWindows, self).__init__(parent)
         app = QtWidgets.QApplication(sys.argv)
         main_window = QtWidgets.QMainWindow()
-        self.ui = ui.Ui_dog()
+        self.ui = Ui_dog()
         self.ui.setupUi(main_window)
-
-        # 银行基本信息目录及文件名
-        self.bank_basic_info_dir = r"C:\quanttime\src\watch_time\bank_info.csv"
 
         # tushare connect context
         token = "17e7755e254f02cc312b8b7e22ded9a308924147f8546fdfbe653ba1"
@@ -34,6 +43,13 @@ class watchMainWindows(object):
         # ts 授权
         self.pro = ts.pro_api()
 
+        # 银行基本信息更新按钮信号连接
+        bank_thread = BankThread()
+        self.ui.pushButton.clicked.connect(bank_thread.update_bank_industry_table)
+        # 银行分红信息及系统排名表刷新信号连接
+        self.ui.pushButton_2.clicked.connect(bank_thread.process_bank_dividend)
+        bank_thread.df_bank_out.connect(self.update_bank_dividend)
+
         # 设定默认的行情数据, 通达信默认行情源，tushare，joinquant可选
         self.ui.checkBox_4.setCheckState(QtCore.Qt.Unchecked)
         self.ui.checkBox_5.setCheckState(QtCore.Qt.Checked)
@@ -41,69 +57,60 @@ class watchMainWindows(object):
 
         # 默认只分析重点关注的券商标的
         self.ui.checkBox.setCheckState(QtCore.Qt.Checked)
-
-        # 银行基本信息更新按钮信号连接
-        self.ui.pushButton.clicked.connect(self.update_bank_industry_table)
-
-        # 银行分红信息及系统排名表刷新信号连接
-        self.ui.pushButton_2.clicked.connect(self.update_bank_dividend)
-
         # 券商估值分析pushbutton按钮signal连接
-        self.ui.pushButton_3.clicked.connect(self.analyze_security_valuation)
+        # signal发射信号流为：pushbutton3 触发本class的获取ui中是否只是分析重点券商，然后把获取的ui信息发射到security.py中取分析
+        self.ui.pushButton_3.clicked.connect(self.analyse_security_by_choice)
+
+        # 券商业务处理线程信号与主页面券商估值分析表更新slot连接
+        security_thread = SecurityThread()
+        security_thread.df_out.connect(self.analyze_security_valuation)
+        self.security_out.connect(security_thread.analyze_security_valuation)
+
+        # 金银业务, 默认手动刷新，自动刷新会启动对应的处理线程，这里默认不自动关联
+        self.ui.checkBox_3.setCheckState(QtCore.Qt.Unchecked)
+        self.gold_thread = ProcessAUAGThread()
+        self.gold_thread.auag_quotation.connect(self.display_auag_ratio)
+        self.gold_thread.get_auag_ratio()
+        self.ui.pushButton_4.clicked.connect(self.gold_thread.get_auag_ratio)
+        # checkbox自动运行状态选定
+        self.ui.checkBox_3.stateChanged.connect(self.gold_thread.auto_run)
+        # 设置做多做空买入卖出起始线
+        self.back_day_stat = 20  # 设置当前日期往前推几天的统计信息
+        self.long_buy_value = 0.10  # 做多金银比，统计买入线，如0.10即10%分位线
+        self.long_sell_value = 0.20  # 做多金银比，统计卖出线，如0.15即15%分位线
+        self.short_buy_value = 0.90  # 做空金银比，统计的买入线，如0.85即85%分位线
+        self.short_sell_value = 0.80  # 做空金银比，统计的卖出线
+        self.init_buy_sell_info()
+        self.ui.lineEdit_015.editingFinished.connect(self.emit_auag_stat_info)
+        self.agau_stat_info_out.connect(self.gold_thread.calc_stat)
+        self.gold_thread.signal_auag_stat.connect(self.display_auag_buysell_table)
+
+        # 指数分析
+        index_select_dialog = IndexSelected()
+        self.ui.pushButton_5.clicked.connect(index_select_dialog.show_dialog)
+        index_select_dialog.signal_select_index.connect(self.display_selected_index_analyse)
+        self.ui.tableWidget_4.cellClicked.connect(self.get_display_weight)
+        self.ui.tableWidget_4.cellDoubleClicked.connect(self.get_display_weight)
 
         main_window.show()
         sys.exit(app.exec_())
     # ==============================================================
 
-    def update_bank_industry_table(self):
-        '''
-        更新银行业信息表
-        1、读取stock基本信息目录（C:\quanttime\data\basic_info）下的all_stock_info_ts.csv文件，获取行业为银行的所有内容
-        2、将该信息转存到程序运行目录（C:\quanttime\src\watch_time）下，命名为bank_info.csv
-        :return:
-        '''
-        select_columns = ["ts_code", "name", "industry"]
-        bank = pd.read_csv(r"C:\quanttime\data\basic_info\all_stock_info_ts.csv",
-                           usecols=select_columns, encoding="gbk", index_col=["ts_code"])
-        bank = bank[bank["industry"] == "银行"]
-        bank[["name"]].to_csv(self.bank_basic_info_dir, encoding="gbk")
-
-    # ==============================================================
-
-    def update_bank_dividend(self):
+    def update_bank_dividend(self, df_bank):
         '''
         更新分红信息，当前查询分红信息采用的tushare接口
         :return:
         '''
-        bank = pd.read_csv(self.bank_basic_info_dir, encoding="gbk", index_col=["ts_code"])
-        # 获取分红信息
-        df_bank_dividend = self.get_dividend_by_tushare(bank.index.tolist())
-        df_bank_dividend = df_bank_dividend.set_index("ts_code")
-        df_bank_dividend = pd.merge(df_bank_dividend, bank, left_index=True, right_index=True)
 
-        #获取实时股价
-        df_bank_price = self.get_quote(bank.index)
-        if df_bank_price.empty:
-            print("获取实时行情失败，检查行情接口，再次获取")
-            return
-
-        df_bank = pd.merge(df_bank_dividend, df_bank_price, left_on="name", right_on="name")
-        columns_need_2_float = ["cash_div_tax", "price"]
-        df_bank[columns_need_2_float] = df_bank[columns_need_2_float].apply(pd.to_numeric)
-        df_bank["div_rate"] = df_bank["cash_div_tax"] / df_bank["price"]
-        df_bank = df_bank.sort_values(by=["div_rate"], ascending=False)
-        df_bank["div_rate"] = df_bank["div_rate"].map(self.display_percent_format)
-        print(df_bank)
-
-        #获取flitter排名
+        # 获取flitter排名
         df_flitter = self.get_flitter()
         df_flitter = df_flitter.set_index("code")
-        print(df_flitter)
 
         rows = len(df_bank)
         self.ui.tableWidget.setRowCount(rows)
         for i in range(rows):
-            item = QtWidgets.QTableWidgetItem(df_bank.iloc[i, df_bank.columns.get_loc("code")])
+            # item = QtWidgets.QTableWidgetItem(df_bank.iloc[i, df_bank.columns.get_loc("code")])
+            item = QtWidgets.QTableWidgetItem(df_bank.index[i])
             self.ui.tableWidget.setItem(i, 0, item)
 
             item = QtWidgets.QTableWidgetItem(df_bank.iloc[i, df_bank.columns.get_loc("name")])
@@ -121,11 +128,13 @@ class watchMainWindows(object):
             item = QtWidgets.QTableWidgetItem(df_bank.iloc[i, df_bank.columns.get_loc("end_date")])
             self.ui.tableWidget.setItem(i, 6, item)
 
-            code = df_bank.iloc[i, df_bank.columns.get_loc("code")]
+            code = df_bank.index[i]
             if code[0] == '6':
-                code = "SH" + code
+                code = "SH" + code.split('.')[0]
             elif code[0] == '0':
-                code = "SZ" + code
+                code = "SZ" + code.split('.')[0]
+            elif code[0] == '3':
+                code = "SZ" + code.split('.')[0]
             else:
                 code = "000000"
             try:
@@ -140,132 +149,32 @@ class watchMainWindows(object):
             except KeyError:
                 continue
 
-
-
-
-    # ==============================================================
-
-    def get_dividend_by_tushare(self, ts_code_list):
+    # ========================================
+    def analyse_security_by_choice(self):
         '''
-        tushare接口获取分红信息
-        :param ts_code_list: code list，需要判断是否满足tushare的code格式要求
-        :return: 包含分红信息的df
+        根据券商页面的选择，是进行头部券商的分析还是所有券商的分析
+        该函数根据checkbox不同的状态发射不同的signal到sercury.py
+        1--代表只分析头部券商
+        0--代表分析所有券商
+        :return: wu
         '''
-        # end_date:分红年度 cash_div_tax：每股分红税前 record_date：股权登记日 pay_date：派息日
-        columns_name = ["ts_code", "end_date", "cash_div_tax", "record_date", "pay_date"]
-        get_feilds = 'ts_code,end_date,cash_div_tax,record_date,pay_date'
-        df_bank_dividend = pd.DataFrame(columns=columns_name)
+        check_status = self.ui.checkBox.checkState()
+        if check_status == QtCore.Qt.Checked:
+            # 读取重点关注的券商
+            self.security_out.emit(1)
+        else:
+            # 所有券商
+            self.security_out.emit(0)
 
-        # df_bank_dividend = self.pro.dividend(ts_code=ts_code_list.pop(0), fields=get_feilds)
-        for ts_code in ts_code_list:
-            df_tmp = self.pro.dividend(ts_code=ts_code, fields=get_feilds)
-            if df_tmp.empty:
-                continue
-            # 只取第一行最新的记录，旧的分红记录不需要
-            df_tmp = df_tmp.loc[df_tmp.index[0], columns_name]
-            df_bank_dividend = df_bank_dividend.append(df_tmp, ignore_index=True)
-        return df_bank_dividend
-
-    # ==============================================================
+    # ========================================
 
     # @pysnooper.snoop()
-    def analyze_security_valuation(self):
+    def analyze_security_valuation(self, df_pb, df_pe):
         '''
         分析券商的估值信息
         分别读取所有券商valuation表，获取pb，pe等信息
         :return:
         '''
-        security = pd.DataFrame()
-        check_status = self.ui.checkBox.checkState()
-        if check_status == QtCore.Qt.Checked:
-            # 读取重点关注的券商
-            security = pd.read_csv(r"C:\quanttime\src\watch_time\key_security.csv", encoding="gbk",
-                                   index_col=["ts_code"])
-        else:
-            # 从tushare的基本信息表中读取所有证券行业的code和名称
-            select_columns = ["ts_code", "name", "industry"]
-            security = pd.read_csv(r"C:\quanttime\data\basic_info\all_stock_info_ts.csv",
-                                   usecols=select_columns, encoding="gbk", index_col=["ts_code"])
-            security = security[security["industry"] == "证券"]
-
-        # loc获取元素时，name是属性，使用loc[index,['name']].name获取的值不对，所有列名这里改个名称
-        security = security.rename(columns={"name": "sname"})
-
-        # 读取所有证券行业的valuation数据，该数据来至于finance文件夹下的valuation表，该表每天更新，存到交易日前一天的股指数据
-        get_columns = ["code", "day", "pe_ratio", "pb_ratio"]
-        basic_path = "C:\\quanttime\\data\\finance\\valuation\\"
-        pb_general_result = []
-        pe_general_result = []
-        test_code_list = ['600030.SH', '000776.SZ']
-        #for ts_code in test_code_list:
-        for ts_code in security.index:
-            jq_code = self.tscode2jqcode(ts_code)
-            if jq_code == "000000":
-                continue
-            file_path = basic_path + jq_code + ".csv"
-            if os.path.exists(file_path):
-                df_valuation = pd.read_csv(file_path, usecols=get_columns)
-                df_valuation = df_valuation.drop_duplicates("day")
-                df_valuation = df_valuation.set_index("day")
-                if df_valuation.empty:
-                    continue
-
-                pb = df_valuation.loc[df_valuation.index[-1], ["pb_ratio"]].pb_ratio
-                pb_quantile_5 = df_valuation.pb_ratio.quantile(0.05)
-                pb_quantile_10 = df_valuation.pb_ratio.quantile(0.10)
-                pb_min = df_valuation.pb_ratio.min()
-                pb_min_date = df_valuation.pb_ratio.idxmin()
-                pb_max = df_valuation.pb_ratio.max()
-                pb_max_date = df_valuation.pb_ratio.idxmax()
-                pb_median = df_valuation.pb_ratio.median()
-                pb_std = df_valuation.pb_ratio.std()
-
-                pb_name = security.loc[ts_code, ["sname"]].sname
-                price = "--"
-                pre_close = "--"
-                df_quote = self.get_quote([ts_code])
-                if not df_quote.empty:
-                    df_quote = df_quote.set_index("code")
-                    price = df_quote.iloc[0, df_quote.columns.get_loc('price')]
-                    pre_close = df_quote.iloc[0, df_quote.columns.get_loc('pre_close')]
-                pb_tmp = [ts_code, pb_name, price, pre_close, pb, pb_min, pb_min_date, pb_quantile_5, pb_quantile_10,
-                          pb_median, pb_max, pb_max_date, pb_std]
-                pb_general_result.append(pb_tmp)
-
-                pe = df_valuation.loc[df_valuation.index[-1], ["pe_ratio"]].pe_ratio
-                pe_quantile_5 = df_valuation.pe_ratio.quantile(0.05)
-                pe_quantile_10 = df_valuation.pe_ratio.quantile(0.10)
-                pe_min = df_valuation.pe_ratio.min()
-                pe_min_date = df_valuation.pe_ratio.idxmin()
-                pe_max = df_valuation.pe_ratio.max()
-                pe_max_date = df_valuation.pe_ratio.idxmax()
-                pe_median = df_valuation.pe_ratio.median()
-                pe_std = df_valuation.pe_ratio.std()
-                pe_tmp = [ts_code, pb_name, price, pre_close, pe, pe_min, pe_min_date, pe_quantile_5, pe_quantile_10,
-                          pe_median, pe_max, pe_max_date, pe_std]
-                pe_general_result.append(pe_tmp)
-        df_pb_columns_name = ['code', 'name', 'price', 'pre_close', 'pb', 'min', 'min_date', '5_per', '10_per', 'mean',
-                              'max', 'max_date', 'std']
-        df_pb = pd.DataFrame(data=pb_general_result, columns=df_pb_columns_name)
-        # df_pb = df_pb.set_index("code")
-
-        df_pe_columns_name = ['code', 'name', 'price', 'pre_close', 'pe', 'min', 'min_date', '5_per', '10_per', 'mean',
-                              'max', 'max_date', 'std']
-        df_pe = pd.DataFrame(data=pe_general_result, columns=df_pe_columns_name)
-        # df_pe = df_pe.set_index("code")
-
-        df_pb['pb'] = df_pb['pb'].apply(pd.to_numeric)
-        df_pe['pe'] = df_pe['pe'].apply(pd.to_numeric)
-
-        # 小数只保留两位
-        columns_2decimals = ["pb", "min", "max", "mean", "std", "5_per", "10_per"]
-        df_pb[columns_2decimals] = df_pb[columns_2decimals].round(decimals=2)
-        columns_2decimals = ["pe", "min", "max", "mean", "std", "5_per", "10_per"]
-        df_pe[columns_2decimals] = df_pe[columns_2decimals].round(decimals=2)
-
-        df_pb = df_pb.sort_values(by=['pb'])
-        df_pe = df_pe.sort_values(by=['pe'])
-
         rows = len(df_pb)
         self.ui.tableWidget_2.setRowCount(rows)
         for i in range(rows):
@@ -275,7 +184,7 @@ class watchMainWindows(object):
             self.ui.tableWidget_2.setItem(i, 1, item)
             item = QtWidgets.QTableWidgetItem(str(df_pb.iloc[i, df_pb.columns.get_loc("price")]))
             self.ui.tableWidget_2.setItem(i, 2, item)
-            item = QtWidgets.QTableWidgetItem(str(df_pb.iloc[i, df_pb.columns.get_loc("pre_close")]))
+            item = QtWidgets.QTableWidgetItem(str(df_pb.iloc[i, df_pb.columns.get_loc("last_close")]))
             self.ui.tableWidget_2.setItem(i, 3, item)
             item = QtWidgets.QTableWidgetItem(str(df_pb.iloc[i, df_pb.columns.get_loc("pb")]))
             self.ui.tableWidget_2.setItem(i, 4, item)
@@ -305,7 +214,7 @@ class watchMainWindows(object):
             self.ui.tableWidget_3.setItem(i, 1, item)
             item = QtWidgets.QTableWidgetItem(str(df_pe.iloc[i, df_pe.columns.get_loc("price")]))
             self.ui.tableWidget_3.setItem(i, 2, item)
-            item = QtWidgets.QTableWidgetItem(str(df_pe.iloc[i, df_pe.columns.get_loc("pre_close")]))
+            item = QtWidgets.QTableWidgetItem(str(df_pe.iloc[i, df_pe.columns.get_loc("last_close")]))
             self.ui.tableWidget_3.setItem(i, 3, item)
             item = QtWidgets.QTableWidgetItem(str(df_pe.iloc[i, df_pe.columns.get_loc("pe")]))
             self.ui.tableWidget_3.setItem(i, 4, item)
@@ -327,43 +236,6 @@ class watchMainWindows(object):
             self.ui.tableWidget_3.setItem(i, 12, item)
 
     # ==============================================================
-
-    def get_quote(self, code_list):
-        '''
-        获取股票实时行情
-        :param:code_list 需要获取实时行情的代码
-        :return:df
-        '''
-        if len(code_list) == 0:
-            return pd.DataFrame()
-
-        # checkBox_4通达信接口，checkBox_5 tushare接口 checkBox_7 joinquant接口
-        check_status = self.ui.checkBox_4.checkState()
-        if check_status == QtCore.Qt.Checked:
-            print("暂时没有接入通达信接口，这里选择tushare查询")
-            # return pd.DataFrame()
-
-        check_status = self.ui.checkBox_5.checkState()
-        if check_status == QtCore.Qt.Checked:
-            # 获取对应的正股股价
-            """
-            Index(['name', 'open', 'pre_close', 'price', 'high', 'low', 'bid', 'ask',
-           'volume', 'amount', 'b1_v', 'b1_p', 'b2_v', 'b2_p', 'b3_v', 'b3_p',
-           'b4_v', 'b4_p', 'b5_v', 'b5_p', 'a1_v', 'a1_p', 'a2_v', 'a2_p', 'a3_v',
-           'a3_p', 'a4_v', 'a4_p', 'a5_v', 'a5_p', 'date', 'time', 'code'],
-            dtype='object')
-            """
-            ts_code = [str(x).split('.')[0] for x in code_list]
-            stock_rt_price = ts.get_realtime_quotes(ts_code)
-            stock_rt_price = stock_rt_price.loc[:, ["code", "price", "pre_close", "name"]]
-            return stock_rt_price
-
-        check_status = self.ui.checkBox_7.checkState()
-        if check_status == QtCore.Qt.Checked:
-            print("暂时没有接入joinquant接口，这里选择tushare查询")
-            # return pd.DataFrame()
-
-    # ==============================================================
     @staticmethod
     def get_flitter():
         '''
@@ -382,44 +254,146 @@ class watchMainWindows(object):
         else:
             return pd.DataFrame()
 
-    # ==============================================================
-
-    @staticmethod
-    def display_percent_format(x):
+    # ===================================================
+    def display_auag_ratio(self, quote_list):
         '''
-        功能：小数按照百分数%显示，保留两位小数
-        '''
-        try:
-            data = float(x)
-        except:
-            print("input is not numberic")
-            return 0
-
-        return "%.2f%%"%(data * 100)
-
-    # ==============================================================
-    @staticmethod
-    def tscode2jqcode(x):
-        '''
-        tushare code --> joinquant code
-        即601318.SH --> 601318.XSHG
-        :param x:
+        更新金银比信息
+        :param quote_list 接收的金银比线程emit的list，
+        list：按照[au,ag,au/ag,au_bid,au_ask,ag_bid,ag_ask,long_ratio,short_ratio, date]的顺序
         :return:
         '''
-        code = str(x)
-        ret = code.split('.')
+        print(quote_list)
+        if len(quote_list) == 0:
+            print("接收到金银比list==[]")
+            return
+        if len(quote_list) != 10:
+            print("接收的金银比list len!=10, list=%r" % quote_list)
+            return
+        self.ui.lineEdit.setText(str(quote_list[0]))
+        self.ui.lineEdit_2.setText(str(quote_list[1]))
+        self.ui.lineEdit_3.setText(str(quote_list[2]))
+        self.ui.lineEdit_4.setText(str(quote_list[9]))
+        self.ui.lineEdit_6.setText(str(quote_list[4]))
+        self.ui.lineEdit_7.setText(str(quote_list[3]))
+        self.ui.lineEdit_9.setText(str(quote_list[6]))
+        self.ui.lineEdit_11.setText(str(quote_list[5]))
+        self.ui.lineEdit_10.setText(str(quote_list[7]))
+        self.ui.lineEdit_12.setText(str(quote_list[8]))
 
-        if ret[0].isnumeric():
-            if ret[0][0] == '6':
-                return ret[0] + '.XSHG'
-            else:
-                return ret[0] + '.XSHE'
+    # =====================================================
+    def process_auag_auto_quote(self):
+        '''
+        金银比的自动获取处理
+        :return:
+        '''
+        check_status = self.ui.checkBox_3.checkState()
+        if check_status == QtCore.Qt.Checked:
+            self.ui.checkBox_2.setCheckState(QtCore.Qt.Unchecked)
+    # ============================================
+    def init_buy_sell_info(self):
+        '''
+        设置做多，做空金银比的起始线及统计周期
+        :return:
+        '''
+        self.ui.lineEdit_016.setText(str(self.back_day_stat))# 设置当前日期往前推几天的统计信息
+        self.ui.lineEdit_08.setText(str(self.long_buy_value))# 做多金银比，统计买入线，如0.10即10%分位线
+        self.ui.lineEdit_013.setText(str(self.long_sell_value))# 做多金银比，统计卖出线，如0.15即15%分位线
+        self.ui.lineEdit_014.setText(str(self.short_buy_value))# 做空金银比，统计的买入线，如0.85即85%分位线
+        self.ui.lineEdit_015.setText(str(self.short_sell_value))# 做空金银比，统计的卖出线
+        self.ui.lineEdit_018.setText(datetime.today().date().strftime("%Y-%m-%d"))
 
-        else:
-            print("code is not standard,code=%r ", code)
-            return "000000"
+    # =================================================
+    def emit_auag_stat_info(self):
+        '''
+        将界面设置的金银比统计信息的数据发射到gold线程进行处理
+        signal：发射是list类型，按照[long_buy，long_sell，short_buy，short_sell，back_day]排序
+        :return:
+        '''
+        long_buy = self.ui.lineEdit_08.text()
+        long_sell = self.ui.lineEdit_013.text()
+        short_buy = self.ui.lineEdit_014.text()
+        short_sell = self.ui.lineEdit_015.text()
+        back_day = self.ui.lineEdit_016.text()
+        signal_list = [float(long_buy), float(long_sell), float(short_buy), float(short_sell), int(back_day)]
+        self.agau_stat_info_out.emit(signal_list)
+
+    # =================================================
+    def display_auag_buysell_table(self, stat_list):
+        '''
+        更新计算后的统计值买卖信息表
+        :param stat_list: gold处理线程发射的经过计算后的统计信息值
+        按照[long_buy，long_sell，short_buy，short_sell，max, min, mean, std, 25%, 50%, 75%,记录表最后时间]排序
+        :return:
+        '''
+        print("display_auag_buysell_table, %r" % stat_list)
+        if len(stat_list) == 0:
+            print("接收的经计算的统计值list为空")
+            return
+        if len(stat_list) != 12:
+            print("接收的经计算的统计值len list!=11, list=%r" % stat_list)
+            return
+        self.ui.lineEdit_017.setText(stat_list[11])
+        self.ui.tableWidget_6.setRowCount(1)
+        for i in range(len(stat_list) - 1):
+            item = QtWidgets.QTableWidgetItem(stat_list[i])
+            self.ui.tableWidget_6.setItem(0, i, item)
+    # ======================================================
+
+    def display_selected_index_analyse(self, df_pb, df_pe):
+        '''
+        显示由index分析模块发射过来的pb，pe信息
+        :param df_pb: pb分析结果 df
+        columns_name = ['code', 'name', 'close', 'pb', 'min', 'min_date', '5%', '10%', 'mean', 'max', 'max_date', 'std']
+        :param df_pe: pe分析结果 df
+        :return:
+        '''
+        print(df_pb)
+        print(df_pe)
+        if len(df_pb) == 0:
+            print("精选指数为空")
+            return
+
+        # 清除pb表
+        self.ui.tableWidget_4.clearContents()
+        self.ui.tableWidget_4.setRowCount(len(df_pb))
+        for i in range(len(df_pb)):
+            for column in range(len(df_pb.columns)):
+                item = QtWidgets.QTableWidgetItem(str(df_pb.iloc[i, column]))
+                self.ui.tableWidget_4.setItem(i, column, item)
+
+        # 清除pe表
+        self.ui.tableWidget_5.clearContents()
+        self.ui.tableWidget_5.setRowCount(len(df_pe))
+        for i in range(len(df_pe)):
+            for column in range(len(df_pe.columns)):
+                item = QtWidgets.QTableWidgetItem(str(df_pe.iloc[i, column]))
+                self.ui.tableWidget_5.setItem(i, column, item)
+
+    # ===========================================
+    def get_display_weight(self, row):
+        '''
+        获取并显示sw指数的权重，该slot由table cell 单击或双击触发
+        :param row: 单击或者双击的table的行号
+        :return:
+        '''
+        code = self.ui.tableWidget_4.item(row, 0).text()
+        code = code.split('.')[0]
+        df, msg = swindex.get_index_cons(code)
+        if df.empty:
+            return
+        self.ui.tableWidget_7.clearContents()
+        self.ui.tableWidget_7.setRowCount(len(df))
+        df['weight'] = df['weight'].apply(pd.to_numeric)
+        df = df.sort_values(by=['weight'], ascending=False)
+        for row in range(len(df)):
+            item = QtWidgets.QTableWidgetItem(str(df.iloc[row, df.columns.get_loc('stock_code')]))
+            self.ui.tableWidget_7.setItem(row, 0, item)
+            item = QtWidgets.QTableWidgetItem(str(df.iloc[row, df.columns.get_loc('stock_name')]))
+            self.ui.tableWidget_7.setItem(row, 1, item)
+            item = QtWidgets.QTableWidgetItem(str(df.iloc[row, df.columns.get_loc('weight')]))
+            self.ui.tableWidget_7.setItem(row, 2, item)
 
 
 
 if __name__ == "__main__":
-    watchMainWindows()
+    WatchMainWindows()
