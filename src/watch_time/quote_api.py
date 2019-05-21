@@ -7,6 +7,9 @@ from jqdatasdk import *
 import configparser
 import pandas as pd
 from pytdx.config.hosts import hq_hosts
+from bs4 import BeautifulSoup
+import urllib
+import re
 
 '''
 功能：屏蔽实时行情获取接口的选择
@@ -26,16 +29,49 @@ useid = 13811866763
 pw = samxxxx
 '''
 
-# 定义stock实时行情返回的数据结构
-stock_columns = ["market", "code",
-                 "price", "last_close",
-                 "open", "high", "low", "vol", "cur_vol", "amount", "s_vol", "b_vol",
-                 "bid1", "ask1", "bid_vol1", "ask_vol1",
-                 "bid2", "bid_vol2", "ask2", "ask_vol2",
-                 "bid3", "bid_vol3", "ask3", "ask_vol3",
-                 "bid4", "bid_vol4", "ask4", "ask_vol4",
-                 "bid5", "bid_vol5", "ask5", "ask_vol5"]
-df_stock_quote_ret = pd.DataFrame(columns=stock_columns)
+# 定义stock实时行情返回的数据结构,通达信标准结构节选
+stock_tdx_columns = ["market", "code",
+                     "price", "last_close",
+                     "open", "high", "low", "vol", "cur_vol", "amount", "s_vol", "b_vol",
+                     "bid1", "ask1", "bid_vol1", "ask_vol1",
+                     "bid2", "bid_vol2", "ask2", "ask_vol2",
+                     "bid3", "bid_vol3", "ask3", "ask_vol3",
+                     "bid4", "bid_vol4", "ask4", "ask_vol4",
+                     "bid5", "bid_vol5", "ask5", "ask_vol5"]
+df_stock_quote_ret = pd.DataFrame(columns=stock_tdx_columns)
+
+# tushare stock columns--> tdx columns(stock_tdx_columns)
+'''
+Index(['name', 'open', 'pre_close', 'price', 'high', 'low', 'bid', 'ask',
+    'volume', 'amount', 'b1_v', 'b1_p', 'b2_v', 'b2_p', 'b3_v', 'b3_p',
+    'b4_v', 'b4_p', 'b5_v', 'b5_p', 'a1_v', 'a1_p', 'a2_v', 'a2_p', 'a3_v',
+    'a3_p', 'a4_v', 'a4_p', 'a5_v', 'a5_p', 'date', 'time', 'code'],
+    dtype='object')
+'''
+ts_2_tdx_columns = {'pre_close': "last_close",
+                    'volume': 'vol',
+                    'b1_p': 'bid1',
+                    'b1_v': 'bid_vol1',
+                    'b2_p': 'bid2',
+                    'b2_v': 'bid_vol2',
+                    'b3_p': 'bid3',
+                    'b3_v': 'bid_vol3',
+                    'b4_p': 'bid4',
+                    'b4_v': 'bid_vol4',
+                    'b5_p': 'bid5',
+                    'b5_v': 'bid_vol5',
+                    'a1_p': 'ask1',
+                    'a1_v': 'ask_vol1',
+                    'a2_p': 'ask2',
+                    'a2_v': 'ask_vol2',
+                    'a3_p': 'ask3',
+                    'a3_v': 'ask_vol3',
+                    'a4_p': 'ask4',
+                    'a4_v': 'ask_vol4',
+                    'a5_p': 'ask5',
+                    'a5_v': 'ask_vol5'
+}
+
 
 
 # =====================================================
@@ -102,7 +138,7 @@ def get_quote_by_tdx(code_list):
     api = TdxHq_API()
     with api.connect('119.147.212.81', 7709):
         data = api.to_df(api.get_security_quotes(tdx_code))
-        data = data[stock_columns]
+        data = data[stock_tdx_columns]
         return data
 # ====================================
 
@@ -133,8 +169,15 @@ def get_quote_by_ts(code_list):
     dtype='object')
     """
     data = ts.get_realtime_quotes(ts_code)
-
-
+    data = data.rename(columns=ts_2_tdx_columns)
+    data['market'] = data['code'].apply(process_market)
+    data['s_vol'] = '--'
+    data['b_vol'] = '--'
+    data['cur_vol'] = '--'
+    data = data.drop(columns=['name', 'date', 'time', 'bid', 'ask'])
+    data['vol'] = data['vol'].apply(pd.to_numeric)
+    data['vol'] = data['vol'].map(lambda x: int(x/100))
+    return data
 
 # =====================================
 
@@ -173,12 +216,91 @@ def stander_stock_code(code_list, quote_mark):
         print("市场代码未知，Mark：%s" % quote_mark)
         return []
 
+# =========================================
+
+
+def process_market(x):
+    x = str(x)
+    if x[0] == '6':
+        return 1
+    elif x[0] == '0':
+        return 0
+    elif x[0] == '3':
+        return 0
+    else:
+        return -1
+
+# ============================================
+
+
+def get_auag_quote_by_sina(code):
+    '''
+        获取期货实时行情数据，返回字典数据
+        :param code: str 类型，如“AU0”,多个标的用“，”分割，不区分大小写，有程序处理大小写问题
+        :return: {}
+    '''
+    # http://hq.sinajs.cn/list=AU0 黄金连续
+    basicUrl = "http://hq.sinajs.cn/list="
+    code = code.upper()
+    url = basicUrl + str(code)
+    future_dict = dict()  # 获取到行情后拼成一个字典数据
+    code_list = code.split(",")
+
+    web_data = urllib.request.urlopen(url)
+    soup = BeautifulSoup(web_data, "lxml")
+    data = soup.find("p")
+    data_text = data.get_text()
+    # print(data_text)
+
+    pattern = re.compile('"(.*)"')
+    str_tmp_list = pattern.findall(data_text)
+
+    if len(str_tmp_list) != len(code_list):
+        print("行情获取的数据与输入code数量不符")
+        return {}
+
+    for i in range(len(code_list)):
+        key_data = str_tmp_list[i].split(",")
+
+        # print(str_tmp_list[i])
+        # print(key_data)
+        future_dict[code_list[i]] = dict(
+            name=key_data[0],
+            open=float(key_data[2]),
+            high=float(key_data[3]),
+            low=float(key_data[4]),
+            yesterday_close=float(key_data[5]),
+            bid=float(key_data[6]),
+            ask=float(key_data[7]),
+            new_price=float(key_data[8]),
+            settle_price=float(key_data[9]),
+            yesterday_settle_price=float(key_data[10]),
+            bid_amount=int(key_data[11]),
+            ask_amount=int(key_data[12]),
+            position=int(key_data[13]),
+            total_amount=int(key_data[14]),
+            date=key_data[17],
+        )
+    # print (future_dict)
+    return future_dict
+# =========================================
+
+
 
 
 
 
 if __name__ == "__main__":
-    print(load_config())
-    get_stock_quote(["0000"])
+    # print(load_config())
+    # get_stock_quote(["0000"])
     # print(stander_stock_code(['6001318.XSHE', '000001.XSHG'], 'ts'))
-    print(get_quote_by_tdx(['601318.XSHE', '000001.XSHG']))
+    pd.set_option('display.max_columns', None)
+    # print(get_quote_by_tdx(['601318.XSHE', '000001.XSHG']))
+    # print(get_quote_by_ts(['601318.XSHE', '000001.XSHG']))
+    price = get_auag_quote_by_sina("au0,ag0")
+    print(price)
+    au = price['AU0']['new_price']
+    ag = price['AG0']['new_price']
+    time = price['AU0']['date']
+    print([au, ag, time])
+    #print(get_auag_quote_by_sina("ag0"))
