@@ -14,6 +14,7 @@ emit获取的实时行情数据到主页面，主页面更新银行信息表
 
 class BankThread(QtCore.QThread):
     df_bank_out = QtCore.pyqtSignal(pd.DataFrame)
+    signal_df_ah_premium = QtCore.pyqtSignal(pd.DataFrame)
 
     def __init__(self, parent=None):
         super(BankThread, self).__init__(parent)
@@ -27,6 +28,14 @@ class BankThread(QtCore.QThread):
         002807.SZ	江阴银行
         '''
         self.bank_basic_info_dir = r"C:\quanttime\src\watch_time\bank_info.csv"
+
+        '''
+        a_code	    name	hk_code
+        002936.SZ	郑州银行	HK.6196
+        600016.SH	民生银行	HK.1988
+        600036.SH	招商银行	HK.3968
+        '''
+        self.bank_AH_dir = r'C:\quanttime\src\watch_time\bank_A_H.csv'
 
         # tushare connect context
         token = "17e7755e254f02cc312b8b7e22ded9a308924147f8546fdfbe653ba1"
@@ -106,6 +115,26 @@ class BankThread(QtCore.QThread):
             df_tmp = df_tmp.loc[df_tmp.index[0], columns_name]
             df_bank_dividend = df_bank_dividend.append(df_tmp, ignore_index=True)
         return df_bank_dividend
+
+# ===================================================
+    def get_AH_premium(self):
+        '''
+        获取AH股折溢价情况
+        A股与H股code从运行文件夹内的bank_A_H.csv获取
+        :return:
+        '''
+        ah = pd.read_csv(self.bank_AH_dir, encoding="gbk")
+
+        df_a_price = get_quote_by_futu(ah['a_code'].tolist())
+        df_hk_price = get_quote_by_futu(ah['hk_code'].tolist())
+        if not df_a_price.empty and not df_hk_price.empty:
+            ah = pd.merge(ah, df_a_price, left_on='a_code', right_on='code')
+            ah = ah.drop(columns=['code'])
+            ah = pd.merge(ah, df_hk_price, left_on='hk_code', right_on='code', suffixes=['_a', '_h'])
+            ah = ah.drop(columns=['code'])
+            self.signal_df_ah_premium.emit(ah)
+        else:
+            self.signal_df_ah_premium.emit(pd.DataFrame())
 
 # ========================================================
     @staticmethod
