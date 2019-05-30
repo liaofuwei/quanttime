@@ -10,7 +10,7 @@ from pytdx.config.hosts import hq_hosts
 from bs4 import BeautifulSoup
 import urllib
 import re
-
+from futu import *
 '''
 功能：屏蔽实时行情获取接口的选择
 接入的行情接口有：通达信，tushare，jq
@@ -193,7 +193,7 @@ def stander_stock_code(code_list, quote_mark):
         return []
 
     # 当前接受的code格式有：000001， 000001.SZ，000001.XSHG
-    format = code_list[0].split('.')[0]
+    # format = code_list[0].split('.')[0]
     ret_code_list = []
     if quote_mark == "tdx":
         for code in code_list:
@@ -286,6 +286,58 @@ def get_auag_quote_by_sina(code):
 # =========================================
 
 
+def get_quote_by_futu(code_list):
+    '''
+    通过futu api获取实时行情
+    :param code_list:
+    :return:df
+    futu 返回    ret == RET_OK 返回pd dataframe数据，data.DataFrame数据, 数据列格式如下
+
+                ret != RET_OK 返回错误字符串
+
+                =======================   =============   ==============================================================================
+                参数                       类型                        说明
+                =======================   =============   ==============================================================================
+                code                       str            股票代码
+                update_time                str            更新时间(yyyy-MM-dd HH:mm:ss)，（美股默认是美东时间，港股A股默认是北京时间）
+                last_price                 float          最新价格
+                open_price                 float          今日开盘价
+                high_price                 float          最高价格
+                low_price                  float          最低价格
+                prev_close_price           float          昨收盘价格
+                volume                     int            成交数量
+                turnover                   float          成交金额
+                turnover_rate              float          换手率
+                suspension                 bool           是否停牌(True表示停牌)
+                listing_date               str            上市日期 (yyyy-MM-dd)
+                equity_valid               bool           是否正股（为true时以下正股相关字段才有合法数值）
+                issued_shares              int            发行股本
+                total_market_val           float          总市值
+                net_asset                  int            资产净值
+                net_profit                 int            净利润
+                earning_per_share          float          每股盈利
+                outstanding_shares         int            流通股本
+                net_asset_per_share        float          每股净资产
+                circular_market_val        float          流通市值
+                ey_ratio                   float          收益率（该字段为比例字段，默认不展示%）
+                pe_ratio                   float          市盈率（该字段为比例字段，默认不展示%）
+                pb_ratio                   float          市净率（该字段为比例字段，默认不展示%）
+                pe_ttm_ratio               float          市盈率TTM（该字段为比例字段，默认不展示%）
+                price_spread               float          当前摆盘价差亦即摆盘数据的买档或卖档的相邻档位的报价差
+                （期权，涡轮相关字段省去）
+
+    '''
+    quote_ctx = OpenQuoteContext(host='127.0.0.1', port=11111)
+    get_colunms_name = ['code', 'last_price']
+    ret, df_futu = quote_ctx.get_market_snapshot(code_list)
+    if ret == RET_OK:
+        df_futu = df_futu.loc[:, get_colunms_name]
+    else:
+        df_futu = pd.DataFrame()
+    quote_ctx.close()
+    return df_futu
+
+
 
 
 
@@ -297,10 +349,11 @@ if __name__ == "__main__":
     pd.set_option('display.max_columns', None)
     # print(get_quote_by_tdx(['601318.XSHE', '000001.XSHG']))
     # print(get_quote_by_ts(['601318.XSHE', '000001.XSHG']))
-    price = get_auag_quote_by_sina("au0,ag0")
-    print(price)
-    au = price['AU0']['new_price']
-    ag = price['AG0']['new_price']
-    time = price['AU0']['date']
-    print([au, ag, time])
+    # price = get_auag_quote_by_sina("au0,ag0")
+    # print(price)
+    # au = price['AU0']['new_price']
+    # ag = price['AG0']['new_price']
+    # time = price['AU0']['date']
+    # print([au, ag, time])
     #print(get_auag_quote_by_sina("ag0"))
+    get_quote_by_futu(['SH.601998', 'HK.00998'])
