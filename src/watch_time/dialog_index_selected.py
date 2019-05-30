@@ -6,11 +6,15 @@ from PyQt5 import QtCore, QtWidgets
 import pandas as pd
 import os
 from opendatatools import swindex
+from quote_api import *
+sys.path.append(('C:\\quanttime\\src\\comm'))
+import trade_date_util
 
 
 class IndexSelected(QtCore.QObject):
 
     signal_select_index = QtCore.pyqtSignal(pd.DataFrame, pd.DataFrame)
+    signal_rotation_result = QtCore.pyqtSignal(list, list)
 
     def __init__(self, parent=None):
         super(IndexSelected, self).__init__(parent)
@@ -229,9 +233,72 @@ class IndexSelected(QtCore.QObject):
         df_pe[columns_2decimals] = df_pe[columns_2decimals].round(decimals=2)
         print(df_pb)
         print(df_pe)
+        tmp = self.calc_basic_index()
+        tmp_pb = tmp[0]
+        tmp_pe = tmp[1]
+        df_pb = pd.concat([df_pb, tmp_pb])
+        df_pe = pd.concat([df_pe, tmp_pe])
         self.signal_select_index.emit(df_pb, df_pe)
 
     # ================================
+    def calc_basic_index(self):
+        '''
+        计算大盘综合指数
+        :return: df
+        '''
+        index_list = ["000001.SH", "000300.SH", "000905.SH", "399001.SZ",
+                      "399005.SZ", "399006.SZ", "399016.SZ", "399300.SZ"]
+        index_name = [u"上证指数", u"沪深300", u"中证500", u"深圳成指",
+                      u"中小板指数", u"创业板指数", u"深圳创新指数", u"沪深300"]
+        basic_dir = 'C:\\quanttime\\data\\index\\tushare\\'
+        pb_general_result = []
+        pe_general_result = []
+        columns_name = ['code', 'name', 'close', 'pb', 'min', 'min_date', '5%', '10%', 'mean', 'max', 'max_date', 'std']
+        columns_name1 = ['code', 'name', 'close', 'pe', 'min', 'min_date', '5%', '10%', 'mean', 'max', 'max_date',
+                         'std']
+        for i in range(len(index_list)):
+            file = basic_dir + index_list[i] + '.csv'
+            if os.path.exists(file):
+                df = pd.read_csv(file, index_col=["trade_date"], parse_dates=True, usecols=['trade_date', 'pb', 'pe'])
+                if df.empty:
+                    continue
+                index_code = index_list[i].split('.')[0]
+                tmp_name = index_name[i]
+                pb_min = df['pb'].min()
+                pb_min_date = df['pb'].idxmin()
+                pb_quantile_5 = df['pb'].quantile(0.05)
+                pb_quantile_10 = df['pb'].quantile(0.10)
+                pb_mean = df['pb'].mean()
+                pb_max = df['pb'].max()
+                pb_max_date = df['pb'].idxmax()
+                pb_std = df['pb'].std()
+                pb = df['pb'][-1]
+                pb_tmp = [index_code, tmp_name, '--', pb, pb_min, pb_min_date, pb_quantile_5, pb_quantile_10, pb_mean,
+                          pb_max, pb_max_date, pb_std]
+                pb_general_result.append(pb_tmp)
+
+                pe_min = df['pe'].min()
+                pe_min_date = df['pe'].idxmin()
+                pe_quantile_5 = df['pe'].quantile(0.05)
+                pe_quantile_10 = df['pe'].quantile(0.10)
+                pe_mean = df['pe'].mean()
+                pe_max = df['pe'].max()
+                pe_max_date = df['pe'].idxmax()
+                pe_std = df['pe'].std()
+                pe = df['pe'][-1]
+                pe_tmp = [index_code, tmp_name, '--', pe, pe_min, pe_min_date, pe_quantile_5, pe_quantile_10, pe_mean,
+                          pe_max, pe_max_date, pe_std]
+                pe_general_result.append(pe_tmp)
+        df_pb = pd.DataFrame(data=pb_general_result, columns=columns_name)
+        df_pe = pd.DataFrame(data=pe_general_result, columns=columns_name1)
+        # 小数只保留两位
+        columns_2decimals = ["pb", "min", "max", "mean", "std", "5%", "10%"]
+        df_pb[columns_2decimals] = df_pb[columns_2decimals].round(decimals=2)
+        columns_2decimals = ["pe", "min", "max", "mean", "std", "5%", "10%"]
+        df_pe[columns_2decimals] = df_pe[columns_2decimals].round(decimals=2)
+        return df_pb, df_pe
+
+    # ==================================
 
     def get_sw_weight(self, code):
         '''
@@ -240,7 +307,167 @@ class IndexSelected(QtCore.QObject):
         :return: df
         '''
         df, msg = swindex.get_index_cons(code)
-        return
+
+
+    # =========================================
+    def index_rotation(self):
+        '''
+        实数轮动分析
+        历史k线数据读取至C:\quanttime\data\index\jq  .XSHG
+        实时行情获取指数当前点位来之与tdx
+        :return:
+        '''
+        index_compare = [["399300", "399905"], ["399300", "399673"], ["399300", "399006"]]
+        index_name = {
+            "399300": "沪深300",
+            "399905": "中证500",
+            "399673": "创业板50",
+            "399006": "创业板指数"}
+
+        basic_dir = r"C:\quanttime\data\index\jq"
+        quote_list = ["399300"]
+        # 获取实时股价，先从通达信获取
+        df_price = get_quote_by_tdx(quote_list)
+        if df_price.empty :
+            print("tdx获取实时指数点位失败")
+            return
+        df_price = df_price.set_index("code")
+        price_300 = df_price.loc["399300", ["price"]].price
+
+        today = datetime.today().date().strftime("%Y-%m-%d")
+        day_20 = trade_date_util.get_appoint_trade_date(today, -20)
+        if day_20 == "":
+            print("获取前20天日期为空")
+            return
+        day_20 = datetime.strptime(day_20, "%Y-%m-%d")
+        day_19 = trade_date_util.get_appoint_trade_date(today, -19)
+        if day_19 == "":
+            print("获取前19天日期为空")
+            return
+        day_19 = datetime.strptime(day_19, "%Y-%m-%d")
+        day_21 = trade_date_util.get_appoint_trade_date(today, -21)
+        if day_21 == "":
+            print("获取前21天日期为空")
+            return
+        day_21 = datetime.strptime(day_21, "%Y-%m-%d")
+
+        index_300_csv = basic_dir + r'\399300.XSHE' + '.csv'
+        if not os.path.exists(index_300_csv):
+            print("%s 不存在" % index_300_csv)
+            return
+        index_300 = pd.read_csv(index_300_csv, index_col=["date"], parse_dates=True, usecols=["date", "close"])
+        index_300 = index_300[~index_300.reset_index().duplicated().values]
+        try:
+            index_300_20 = float(index_300.loc[day_20, ["close"]].close)
+            index_300_19 = float(index_300.loc[day_19, ["close"]].close)
+            index_300_21 = float(index_300.loc[day_21, ["close"]].close)
+        except:
+            print("沪深300指数，获取前20天，19天，21天close数据失败")
+            return
+        print("当前点位：%f,20天前点位：%f，19天前点位：%f，21天前点位：%f" %
+              (price_300, index_300_20, index_300_19, index_300_21))
+
+        curr_300_close_20_result = price_300 > index_300_20
+        curr_300_close_20_increase = 0
+        if index_300_20 == 0:
+            print("300指数前20天close=0")
+            return
+        # 计算标准版的指数涨幅，当前指数-20天前指数，除以20天前的指数
+        if curr_300_close_20_result:
+            curr_300_close_20_increase = (price_300 - index_300_20) / index_300_20
+        index_300_mean = (index_300_20 + index_300_19 + index_300_21) / 3
+        curr_300_plus = price_300 > index_300_mean
+        curr_300_plus_increase = 0
+        # 计算plus的指数涨幅
+        if curr_300_plus:
+            curr_300_plus_increase = (price_300 - index_300_mean) / index_300_mean
+
+        small_index_list = ["399905", "399673", "399006"]
+        general_result_stander = []
+        general_result_plus = []
+        index_20 = 0
+        index_19 = 0
+        index_21 = 0
+        index_mean = 0
+        for index_code in small_index_list:
+            index_csv = basic_dir + '\\' + index_code + '.XSHE.csv'
+            if not os.path.exists(index_csv):
+                print("%s 历史kline数据不存在" % index_csv)
+                continue
+            index = pd.read_csv(index_csv, index_col=["date"], parse_dates=True, usecols=["date", "close"])
+            index = index[~index.reset_index().duplicated().values]
+            try:
+                index_20 = float(index.loc[day_20, ["close"]].close)
+                index_19 = float(index.loc[day_19, ["close"]].close)
+                index_21 = float(index.loc[day_21, ["close"]].close)
+                index_mean = (index_20 + index_19 + index_21) / 3
+            except:
+                print("%s指数，获取前20天，19天，21天close数据失败" % index_code)
+                continue
+            df_price_tmp = get_quote_by_tdx([index_code])
+            if df_price_tmp.empty:
+                print("tdx获取实时指数点位失败")
+                continue
+            df_price_tmp = df_price_tmp.set_index("code")
+            curr_price = df_price_tmp.loc[index_code, ["price"]].price
+            print("指数%s ：当前点位：%f,20天前点位：%f，19天前点位：%f，21天前点位：%f" %
+                  (index_code, curr_price, index_20, index_19, index_21))
+            result = ""
+            if curr_300_close_20_result and (curr_price > index_20):
+                # 300指数与当前指数都比20日前close高，比较涨幅
+                index_crease = (curr_price - index_20) / index_20
+                if curr_300_close_20_increase > index_crease:
+                    # 300指数涨幅大
+                    result = "buy 沪深300"
+                elif curr_300_close_20_increase < index_crease:
+                    # 小盘涨的多
+                    result = "buy %s" % index_name[index_code]
+                else:
+                    # 涨幅一样
+                    result = "涨幅一样"
+            elif curr_300_close_20_result and (curr_price < index_20):
+                result = "buy 沪深300"
+            elif (not curr_300_close_20_result) and (curr_price > index_20):
+                result = "buy %s" % index_name[index_code]
+            else:
+                result = "sell"
+            curr = "沪深300：" + str(price_300) + " vs " + index_name[index_code] + ":" + str(curr_price)
+            pre_20 = "沪深300：" + str(index_300_20) + " vs " + index_name[index_code] + ":" + str(index_20)
+            general_result_stander.append([index_code, result, curr, pre_20])
+            # ==============stander================
+            # ===============plus======================
+            if curr_300_plus and (curr_price > index_mean):
+                index_crease = (curr_price - index_mean) / index_mean
+                if curr_300_plus_increase > index_crease:
+                    # 300指数涨幅大
+                    result = "buy 沪深300"
+                elif curr_300_plus_increase < index_crease:
+                    # 小盘涨的多
+                    result = "buy %s" % index_name[index_code]
+                else:
+                    # 涨幅一样
+                    result = "涨幅一样"
+            elif curr_300_plus and (curr_price < index_mean):
+                result = "buy 沪深300"
+            elif (not curr_300_plus) and (curr_price > index_mean):
+                result = "buy %s" % index_name[index_code]
+            else:
+                result = "sell all"
+            curr = "沪深300：" + str(price_300) + " vs " + index_name[index_code] + ":" + str(curr_price)
+            pre_mean = "沪深300：" + str(round(index_300_mean, 2)) + " vs " + index_name[index_code] + ":" + \
+                       str(round(index_mean, 2))
+            general_result_plus.append([index_code, result, curr, pre_mean])
+
+        self.signal_rotation_result.emit(general_result_stander, general_result_plus)
+
+
+
+
+
+
+
+
+
 
 
 
