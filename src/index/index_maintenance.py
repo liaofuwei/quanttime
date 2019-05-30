@@ -16,6 +16,9 @@ import pymongo
 
 sys.path.append('C:\\quanttime\\src\\mydefinelib\\')
 import mydefinelib as mylib
+sys.path.append('C:\\quanttime\\src\\comm\\')
+import last_update
+import trade_date_util
 
 pd.set_option('precision', 3)
 auth('13811866763', "sam155")  # jqdata 授权
@@ -34,10 +37,13 @@ mongo_client = pymongo.MongoClient('mongodb://localhost:27017/')
 5、申万指数采用的是opendatatools库
 6、20181207 增加指数的估值数据，数据存储于C:\quanttime\data\index\index_valuation，按照指数命名如：399975.XSHE。csv
 7、20181214 运行正常，增加日志功能，日志存放在C:\\quanttime\\log\\index_maintenance.log
-update_jq_index
-update_sw_index
-get_tushare_index
-maintenance_index_valuation
+可用方法列表：
+update_jq_index：按日更新
+get_tushare_index：按日更新
+get_tushare_index_basic_info：低频更新，该数据变化频度很低
+get_tushare_index：按日更新
+tushare_index_PEPB_info：紧接着get_tushare_index使用
+maintenance_index_valuation：维护指定的index估值信息，先读取csv，需要注意的是，该index维护的是指定的指数，而不是所有的指数 
 get_index_weights_from_jq
 '''
 
@@ -58,6 +64,8 @@ def update_jq_index():
     '''
     本函数功能：通过joinquant更新聚宽包括的600多个指数，如果是新添加指数，则添加，
     ！！！！该数据其实是k线数据，不包含估值！！！！
+    首先从joinquant获取所有的index代码，在获取每个index对应的k线数据
+    即本函数不读取基础配置，直接从joinquant获取所有指数代码，后更新个指数信息
     存储目录：C:\quanttime\data\index\jq
     文件名：code.csv的格式
     :return:
@@ -72,39 +80,32 @@ def update_jq_index():
     000002.XSHG	 A股指数	        AGZS	1992-02-21	    2200-01-01	     index
     '''
 
-    today = datetime.today().date()
-    oneday = timedelta(days=1)
-    yesterday = today - oneday
-    end_time = yesterday.strftime("%Y-%m-%d")
+    end_time = datetime.today().date() - timedelta(days=1)
+    logging.debug("==========================")
+    logging.debug("开始更新joinquant的指数K线")
     for index_name in index_security.index:
         start_time = index_security.loc[index_name]["start_date"].date()
         update_file_name = index_dir + str(index_name) + ".csv"
         if os.path.exists(update_file_name):
-            data = pd.read_csv(update_file_name, index_col=["date"])
-            try:
-                d1 = datetime.strptime(
-                    data.index[len(data.index) - 1], '%Y-%m-%d')
-                d2 = datetime.strptime(data.index[0], '%Y-%m-%d')
-            except BaseException:
-                d1 = datetime.strptime(
-                    data.index[len(data.index) - 1], '%Y/%m/%d')
-                d2 = datetime.strptime(data.index[0], '%Y/%m/%d')
-            delta = d1 - d2
-            delta2 = timedelta(days=1)  # 读取的最后日期往后推一天，作为更新的起始日期
-            # 判断存储在csv中的日期是顺序还是逆序
-            if delta.days > 0:
-                d1 = d1 + delta2
-                start_time = d1.strftime('%Y-%m-%d')
-            else:
-                d2 = d2 + delta2
-                start_time = d2.strftime('%Y-%m-%d')
+            data = pd.read_csv(update_file_name, index_col=["date"], parse_dates=["date"])
+            # 读取的最后日期往后推一天，作为更新的起始日期
+            start_time = data.index[-1].date() + timedelta(days=1)
+            if start_time >= end_time:
+                logging.info("index：%s 记录最后时间为本次更新结束时间，本次无需更新" % str(index_name))
+                print("index：%s 记录最后时间为本次更新结束时间，本次无需更新" % str(index_name))
+                continue
             tmp = get_price(
                 index_name,
                 start_date=start_time,
                 end_date=end_time,
                 frequency='daily',
                 fields=None)
+            if tmp.empty:
+                logging.info("get index:%s return df=empty" % str(index_name))
+                print("get index:%s return df=empty" % str(index_name))
+                continue
             tmp.to_csv(update_file_name, mode='a', header=None)
+            logging.debug("update index:%r successful" % str(index_name))
             print("update index:%r successful" % str(index_name))
         else:
             tmp = get_price(
@@ -113,87 +114,146 @@ def update_jq_index():
                 end_date=end_time,
                 frequency='daily',
                 fields=None)
+            if tmp.empty:
+                logging.info("first get index:%s but, return df=empty" % str(index_name))
+                print("first get index:%s but, return df=empty" % str(index_name))
+                continue
             tmp.index.name = "date"
             tmp.to_csv(update_file_name)
+            logging.debug("first time get index:%r successful" % str(index_name))
             print("first time get index:%r successful" % str(index_name))
+    logging.debug("更新joinquant的指数K线结束")
+    logging.debug("==========================")
 # =====================================================================================================================
 
 
-def update_sw_index():
+def update_sw_index_valuation_by_opendatatool():
     '''
     功能：更新申万指数，使用opendatatools库
     申万指数可以查表
-    目标文件夹：C:\quanttime\data\index\sw
-    文件名：code。csv
+    目标文件夹：C:\quanttime\data\index\sw\valuation\
+    文件名：code.csv
     :return:
     '''
+    # 获取模块的最后更新日期,判断本次是否需要更新
+    # bret, str_date = last_update.is_last_update_ok("update_sw_index_by_opendatatool")
+    # if bret:
+    #     print("已从opendatatools 更新申万指数估值信息，更新到%s" % str_date)
+    #     return
+    index_db = mongo_client["index_swdb_valuation"]
+
     index_dir = "C:\\quanttime\\data\\index\\sw\\"
     sw_index_code_dir = index_dir + "sw_index_code_info.csv"
-    sw_index_info = pd.read_csv(
-        sw_index_code_dir,
-        index_col=["code"],
-        encoding="gbk")
+    sw_index_info = pd.read_csv(sw_index_code_dir, index_col=["code"], encoding="gbk")
     start_time = "2004-01-01"  # 默认起始时间
-    today = datetime.today().date()
-    one_day = datetime.timedelta(days=1)
-    yesterday = today - one_day
+
+    yesterday = datetime.today().date() - timedelta(days=1)
     end_time = yesterday.strftime("%Y-%m-%d")
     update_failed_code_list = []
     for sw_index in sw_index_info.index:
-        print("begin update code:%r" % str(sw_index))
-        update_file = index_dir + str(sw_index) + ".csv"
+        print("begin update sw code:%r" % str(sw_index))
+        update_file = index_dir + "valuation\\" + str(sw_index) + ".csv"
         if os.path.exists(update_file):
-            data = pd.read_csv(update_file, index_col=["date"], encoding="gbk")
-            d1 = datetime.strptime(data.index[-1], '%Y-%m-%d')
-            d2 = datetime.strptime(data.index[0], '%Y-%m-%d')
-            delta = d1 - d2
-            delta2 = timedelta(days=1)  # 读取的最后日期往后推一天，作为更新的起始日期
-            # 判断存储在csv中的日期是顺序还是逆序
-            if delta.days > 0:
-                d1 = d1 + delta2
-                start_time = d1.strftime('%Y-%m-%d')
-            else:
-                d2 = d2 + delta2
-                start_time = d2.strftime('%Y-%m-%d')
-            df, msg = swindex.get_index_dailyindicator(
-                sw_index, start_time, end_time, 'D')
+            data = pd.read_csv(update_file, index_col=["date"], encoding="gbk", parse_dates=True)
+            # 记录最后日期往后推的第一个交易日
+            st = trade_date_util.get_close_trade_date(data.index[-1].strftime("%Y-%m-%d"), 1)
+            df, msg = swindex.get_index_dailyindicator(sw_index, st, end_time, 'D')
             if df.empty:
-                print(
-                    "update sw code:%r ,but return empty pd!!!!" %
-                    str(sw_index))
+                print("update sw code:%r ,but return empty pd!!!!" % str(sw_index))
                 update_failed_code_list.append(str(sw_index))
                 continue
             else:
                 df = df.set_index("date")
                 df = df.sort_index(ascending=True)
                 df.to_csv(update_file, mode='a', header=None, encoding="gbk")
+                # 存数据库
+                table = index_db[str(sw_index)]
+                table.insert_many(df.to_dict(orient="record"))
                 print("update sw code:%r successful!" % str(sw_index))
         else:
             print("first get sw code:%r " % str(sw_index))
-            df, msg = swindex.get_index_dailyindicator(
-                sw_index, start_time, end_time, 'D')
+            df, msg = swindex.get_index_dailyindicator(sw_index, start_time, end_time, 'D')
             if df.empty:
-                print(
-                    "first get sw code:%r ,but return empty pd!!!!" %
-                    str(sw_index))
+                print("first get sw code:%r ,but return empty pd!!!!" % str(sw_index))
                 continue
             else:
                 df = df.set_index("date")
                 df = df.sort_index(ascending=True)
                 df.to_csv(update_file, encoding="gbk")
+                # 存数据库
+                table = index_db[str(sw_index)]
+                table.insert_many(df.to_dict(orient="record"))
                 print("first get sw code:%r successful!" % str(sw_index))
-
+    # last_update.update_txt_record("update_sw_index_by_opendatatool")
     print("update sw index end!")
     print("this time update failed code:%r" % update_failed_code_list)
 # ==========================================================================
+def get_sw_index_daily_by_opendatatool():
+    '''
+    通过opendatatools接口获取申万指数的k线数据
+    :return:
+    '''
+    index_db = mongo_client["index_swdb_kline"]
+
+    index_dir = "C:\\quanttime\\data\\index\\sw\\"
+    sw_index_code_dir = index_dir + "sw_index_code_info.csv"
+    sw_index_info = pd.read_csv(sw_index_code_dir, index_col=["code"], encoding="gbk")
+    start_time = "2014-01-01"  # 默认起始时间
+
+    yesterday = datetime.today().date() - timedelta(days=1)
+    end_time = yesterday.strftime("%Y-%m-%d")
+    update_failed_code_list = []
+    for sw_index in sw_index_info.index:
+        print("begin update kline sw code:%r" % str(sw_index))
+        update_file = index_dir + "kline\\" + str(sw_index) + ".csv"
+        if os.path.exists(update_file):
+            data = pd.read_csv(update_file, index_col=["date"], encoding="gbk", parse_dates=True)
+            # 记录最后日期往后推的第一个交易日
+            st = trade_date_util.get_close_trade_date(data.index[-1].strftime("%Y-%m-%d"), 1)
+            df, msg = swindex.get_index_daily(sw_index, st, end_time)
+            if df.empty:
+                print("update kline sw code:%r ,but return empty pd!!!!" % str(sw_index))
+                update_failed_code_list.append(str(sw_index))
+                continue
+            else:
+                df = df.set_index("date")
+                df = df.sort_index(ascending=True)
+                df.to_csv(update_file, mode='a', header=None, encoding="gbk")
+                # 存数据库
+                table = index_db[str(sw_index)]
+                table.insert_many(df.to_dict(orient="record"))
+                print("update kline sw code:%r successful!" % str(sw_index))
+        else:
+            print("first get sw code:%r " % str(sw_index))
+            df, msg = swindex.get_index_daily(sw_index, start_time, end_time)
+            if df.empty:
+                print("first get sw code:%r ,but return empty pd!!!!" % str(sw_index))
+                continue
+            else:
+                df = df.set_index("date")
+                df = df.sort_index(ascending=True)
+                df.to_csv(update_file, encoding="gbk")
+                # 存数据库
+                table = index_db[str(sw_index)]
+                table.insert_many(df.to_dict(orient="record"))
+                print("first get sw code:%r successful!" % str(sw_index))
+
+
+# =====================================================
 
 
 def get_tushare_index_basic_info():
     '''
-    获取tushare的指数基本信息
-    市场包括：MSCI，中证指数，上交所指数，深交所指数，中金所，申万，其他等
+    获取tushare的各交易所指数基本信息
+    市场包括：MSCI，中证指数CSI，上交所指数，深交所指数，中金所，申万，其他等
+    存储于csv（C:\\quanttime\\data\\index\\basic_index_info\\）和MongoDB中
+    命名方式为：basic_index_info_+交易所代码，及basic_index_info_msci.csv, basic_index_info_sse.csv等
+    mongodb中同样遵从该命名规则
+    更新方式采取全部读取后，覆盖式更新，即不进行增量更新
     :return:
     '''
+    logging.debug("==========================")
+    logging.debug("开始更新tushare个交易所公布的指数基本信息")
     index_db = mongo_client["index_db"]
     table_list = index_db.list_collection_names()
     #market_list = ["MSCI", "CSI", "SSE", "SZSE", "CICC", "SW", "OTH"]
@@ -205,20 +265,21 @@ def get_tushare_index_basic_info():
             print("获取index market:%s 为空" % market)
             continue
         market = market.lower()
-        file_name = basic_index_info_path + market + ".csv"
-        index_table = index_db[market]
+        file_name = basic_index_info_path + "basic_index_info_" + market + ".csv"
+        table_name = "basic_index_info_" + market
+        index_table = index_db[table_name]
         if os.path.exists(file_name):
             df_index_info = pd.read_csv(
                 file_name, index_col=["ts_code"], encoding="gbk")
             diff = set(get_index_info["ts_code"].values) - set(df_index_info.index)
-            if diff == 0:
+            if len(diff) == 0:
                 print("%s 新获取的index信息与已存在的index信息一致，本次%s 不更新" %
                       (datetime.today().date().strftime("%Y-%m-%d"),
                        market))
                 continue
             else:
                 print("本次新增的code：%r" % diff)
-                if market in table_list:
+                if table_name in table_list:
                     index_table.drop()
                     index_table.insert_many(get_index_info.to_dict(orient="record"))
                 else:
@@ -227,7 +288,7 @@ def get_tushare_index_basic_info():
                 get_index_info.to_csv(file_name, encoding="gbk")
                 print("完成更新%s" % market)
         else:
-            if market in table_list:
+            if table_name in table_list:
                 index_table.drop()
                 index_table.insert_many(get_index_info.to_dict(orient="record"))
             else:
@@ -236,17 +297,15 @@ def get_tushare_index_basic_info():
             get_index_info.to_csv(file_name, encoding="gbk")
             print("完成更新%s" % market)
 
-
-
-
-
+    logging.debug("更新tushare个交易所公布的指数基本信息结束")
+    logging.debug("==========================")
 
 # =============================================
 
 def get_tushare_index():
     '''
-    功能：获取tushare的大盘指数信息，目前包括上证指数，深证指数，上证50，中证500，中小板指，创业板的每日指标数据
-
+    功能：获取tushare的大盘指数信息，目前只包括上证指数，深证指数，上证50，中证500，中小板指，创业板的每日指标数据
+    如后续有指数添加，直接添加到ts_code_list中
     :return:
     '''
     ts_code_list = [
@@ -259,23 +318,17 @@ def get_tushare_index():
         "399016.SZ",
         "399300.SZ"]
     file_basic_path = "C:\\quanttime\\data\\index\\tushare\\"
+    logging.debug("==========================")
+    logging.debug("开始更新tushare指数每日估值信息")
     for index in ts_code_list:
         file_path = file_basic_path + index + '.csv'
         if os.path.exists(file_path):
-            print("%r begin to update %r, 是增量更新" %
-                  (datetime.today().date().strftime("%Y-%m-%d"), index))
-            logging.debug("%r begin to update %r, 是增量更新" %
-                          (datetime.today().date().strftime("%Y-%m-%d"), index))
-            df_index = pd.read_csv(file_path, index_col=["trade_date"])
+            logging.debug("begin to update %s, 是增量更新" % str(index))
+            df_index = pd.read_csv(file_path, index_col=["trade_date"], parse_dates=["trade_date"])
             yesterday = datetime.today().date() - timedelta(days=1)
-            end_date = get_close_trade_date(yesterday.strftime("%Y-%m-%d"), -1)
-
-            if '/' in df_index.index[len(df_index.index) - 1]:
-                file_end_date = datetime.strptime(
-                    df_index.index[len(df_index.index) - 1], "%Y/%m/%d")
-            if '-' in df_index.index[len(df_index.index) - 1]:
-                file_end_date = datetime.strptime(
-                    df_index.index[len(df_index.index) - 1], "%Y-%m-%d")
+            end_date = mylib.get_close_trade_date(yesterday.strftime("%Y-%m-%d"), -1)
+            # 历史k线记录的最后日期
+            file_end_date = df_index.index[-1]
             if file_end_date.date() >= yesterday:
                 logging.debug(
                     "index code:%r valuation already update new,this time need't update" %
@@ -285,8 +338,7 @@ def get_tushare_index():
                     index)
                 continue
 
-            start = get_close_trade_date(
-                file_end_date.date().strftime("%Y-%m-%d"), 1)
+            start = mylib.get_close_trade_date(file_end_date.date().strftime("%Y-%m-%d"), 1)
             tmp_start = start.split('-')
             if len(tmp_start) != 3:
                 print("get_tushare_index start date(%r) format error " % start)
@@ -335,6 +387,8 @@ def get_tushare_index():
             df_index.to_csv(file_path)
             print("%r create and get data end" % index)
             logging.debug("%r create and get data end" % index)
+    logging.debug("更新tushare指数每日估值信息结束")
+    logging.debug("==========================")
 
 
 # =====================================================================================================================
@@ -345,9 +399,10 @@ def tushare_index_PEPB_info():
     tushare数据存放地址：C:\\quanttime\\data\\index\\tushare\\
     目标存储地址：C:\quanttime\data\index\index_valuation\\
     每次完成get_tushare_index，即调用该函数
-
     :return:无
     '''
+    logging.debug("=======================")
+    logging.debug("tushare_index_PEPB_info开始转换tushare每日估值格式")
     ts_code_list = [
         "000001.SH",
         "000300.SH",
@@ -377,9 +432,11 @@ def tushare_index_PEPB_info():
         dest_file_path = dest_basic_path + ts_code + ".csv"
         ts_df.to_csv(dest_file_path)
         print("提取index:%r pepb end" % ts_code)
+    logging.debug("tushare_index_PEPB_info转换tushare每日估值格式end")
+    logging.debug("=========================")
 
 
-# =====================================================================================================================
+# ==============================================
 # 所有指数信息，可通过get_all_securities(types=['index'], date=None)实时获取，同时该信息也存在本地，路径如下
 '''
                 display_name	name	  start_date	end_date	type
@@ -402,18 +459,13 @@ def maintenance_index_valuation():
         encoding="gbk")
 
     yesterday = datetime.today().date() - timedelta(days=1)
-    end_date = get_close_trade_date(yesterday.strftime("%Y-%m-%d"), -1)
+    end_date = mylib.get_close_trade_date(yesterday.strftime("%Y-%m-%d"), -1)
 
     for code in index_all_info.index:
         update_file = index_save_dir + str(code) + '.csv'
         if os.path.exists(update_file):
-            pe_pb_data = pd.read_csv(update_file, index_col=["date"])
-            if '/' in pe_pb_data.index[len(pe_pb_data.index) - 1]:
-                file_end_date = datetime.strptime(
-                    pe_pb_data.index[len(pe_pb_data.index) - 1], "%Y/%m/%d")
-            if '-' in pe_pb_data.index[len(pe_pb_data.index) - 1]:
-                file_end_date = datetime.strptime(
-                    pe_pb_data.index[len(pe_pb_data.index) - 1], "%Y-%m-%d")
+            pe_pb_data = pd.read_csv(update_file, index_col=["date"], parse_dates=["date"])
+            file_end_date = pe_pb_data.index[-1]
             if file_end_date.date() >= yesterday:
                 logging.debug(
                     "index code:%r valuation already update new,this time need't update" %
@@ -423,8 +475,7 @@ def maintenance_index_valuation():
                     code)
                 continue
 
-            start = get_close_trade_date(
-                file_end_date.date().strftime("%Y-%m-%d"), 1)
+            start = mylib.get_close_trade_date(file_end_date.date().strftime("%Y-%m-%d"), 1)
             get_index_pe_pb(code, start, end_date)
             logging.debug("index code:%r process end" % code)
         else:
@@ -447,74 +498,56 @@ def get_index_pe_pb(code, start_date=None, end_date=None):
     index_info = pd.read_csv(
         "C:\\quanttime\\data\\basic_info\\index_all_valuation_info.csv",
         index_col=["code"],
+        parse_dates=['start_date'],
         encoding="gbk")
     print("start_date:%r" % start_date)
 
     if start_date is None:
         start_date = index_info.loc[code, ["start_date"]].start_date
-        if '/' in start_date:
-            start_date = datetime.strptime(start_date, "%Y/%m/%d").date()
-        elif '-' in start_date:
-            start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
-        else:
-            print("start_date:%r" % start_date)
-
-        if start_date < datetime.date(2006, 1, 4):  # 只计算2006年以来的数据
-            start_date = "2006-01-04"
-        else:
-            start_date = start_date.strftime("Y-%m-%d")
+        if start_date.date() < date(2006, 1, 4):  # 只计算2006年以来的数据
+            start_date = date(2006, 1, 4)
 
     if end_date is None:
         end_date = datetime.today().date() - timedelta(days=1)
         end_date = end_date.strftime("%Y-%m-%d")
 
-    if '/' in start_date:
-        if datetime.strptime(start_date,
-                             "%Y/%m/%d").date() < datetime.strptime("2006-01-04",
-                                                                    "%Y-%m-%d").date():
-            start_date = "2006-01-04"
-    if '-' in start_date:
-        if datetime.strptime(start_date,
-                             "%Y-%m-%d").date() < datetime.strptime("2006-01-04",
-                                                                    "%Y-%m-%d").date():
-            start_date = "2006-01-04"
+    if datetime.strptime(start_date, "%Y-%m-%d").date() < date(2006, 1, 4):  # 只计算2006年以来的数据
+        start_date = "2006-01-04"
 
     if not isinstance(end_date, str):
         print("get_index_pe_pb,para end_date(%r) is not str" % end_date)
         return
 
-    dates = get_trade_list(start_date, end_date)
+    dates = mylib.get_trade_list(start_date, end_date)
     if len(dates) == 0:
         print("index: %r,get_trade_list ==0 check! " % code)
         logging.warning("index: %r,get_trade_list ==0 check! " % code)
 
     pe_list = []
     pb_list = []
-    for date in dates:
-        pe_pb = calc_PE_PB_date(code, date)
+    for tmp_date in dates:
+        pe_pb = calc_PE_PB_date(code, tmp_date)
         if len(pe_pb) != 2:
             logging.warning(
                 "calc_PE_PB_date return error,code:%r,date:%r" %
-                (code, date))
+                (code, tmp_date))
             print(
                 "calc_PE_PB_date return error,code:%r,date:%r" %
-                (code, date))
+                (code, tmp_date))
             continue
         pe_list.append(pe_pb[0])
         pb_list.append(pe_pb[1])
-    df_pe_pb = pd.DataFrame({'PE': pd.Series(pe_list, index=dates), 'PB': pd.Series(
-        pb_list, index=dates)}, columns=['PB', 'PE'])
+    df_pe_pb = pd.DataFrame({'PE': pd.Series(pe_list, index=dates), 'PB': pd.Series(pb_list, index=dates)},
+                            columns=['PB', 'PE'])
     df_pe_pb.index.name = "date"
     save_file_dir = index_save_dir + str(code) + '.csv'
-    if(os.path.exists(save_file_dir)):
+    if os.path.exists(save_file_dir):
         df_pe_pb.to_csv(save_file_dir, mode='a', header=None)
     else:
         df_pe_pb.to_csv(save_file_dir)
     print("save code:%r pe_pb valuation successful" % code)
 
-# =====================================================================================================================
-
-
+# =======================================================================
 def calc_PE_PB_date(code, date):
     '''
     计算指定日期的指数PB PE，当前（2018-12-16）按照等权重计算，后续加入权重
@@ -542,8 +575,7 @@ def calc_PE_PB_date(code, date):
         except BaseException:
             logging.debug("stock code:%r --file does not exist" % stock)
             continue
-        valuation_data = valuation_data[~valuation_data.reset_index(
-        ).duplicated().values]
+        valuation_data = valuation_data[~valuation_data.reset_index().duplicated().values]
         try:
             pe_value = valuation_data.loc[date, ['pe_ratio']].pe_ratio
             pb_value = valuation_data.loc[date, ['pb_ratio']].pb_ratio
@@ -587,7 +619,7 @@ def calc_PE_PB_date(code, date):
 
     return [pe_mean, pb_mean]
 
-# =====================================================================================================================
+# ====================================================
 
 
 def get_index_stock_and_weight():
@@ -595,7 +627,7 @@ def get_index_stock_and_weight():
     获取指数的成分和权重
     '''
     dic_stocks = {}
-# =====================================================================================================================
+# ====================================================
 
 
 def calc_index_valuation(index_list):
@@ -610,6 +642,7 @@ def calc_index_valuation(index_list):
     index_all_info = pd.read_csv(
         index_all_info_dir,
         index_col=["code"],
+        parse_dates=["start_date"],
         encoding="gbk")
     stocks_all_info = pd.read_csv(
         "C:\\quanttime\\data\\basic_info\\all_stock_info.csv",
@@ -628,17 +661,11 @@ def calc_index_valuation(index_list):
         index_name = index_all_info.loc[index_code, [
             "display_name"]].display_name
         print("start_date:%r" % start_date)
-        if '/' in start_date:
-            start_date = datetime.strptime(start_date, "%Y/%m/%d").date()
-        elif '-' in start_date:
-            start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
-        else:
-            print("start_date:%r 格式不符合" % start_date)
 
-        if start_date < date(2010, 1, 4):  # 只计算2010年以来的数据,因为成分股获取的数据可能早了没数据
+        if start_date.date() < date(2010, 1, 4):  # 只计算2010年以来的数据,因为成分股获取的数据可能早了没数据
             start_date = date(2010, 1, 4)
 
-        date_range = pd.date_range(start_date, "2018-12-31", freq="BM")
+        date_range = pd.date_range(start_date, date(2018, 12, 31), freq="BM")
         print("date_range:%r" % date_range[0].year)
 
         for comm_date in date_range:
@@ -670,8 +697,7 @@ def calc_index_valuation(index_list):
                     df_tmp = pd.read_csv(
                         valuation_file, index_col=['day'], usecols=[
                             "day", "pb_ratio"])
-                    df_tmp = df_tmp[~df_tmp.reset_index(
-                    ).duplicated().values]  # 去重
+                    df_tmp = df_tmp[~df_tmp.reset_index().duplicated().values]  # 去重
                     if not df_tmp.empty:
                         df_valuation = pd.merge(
                             df_valuation, df_tmp, how="outer", left_index=True, right_index=True)
@@ -718,8 +744,7 @@ def calc_index_valuation(index_list):
                     df_tmp = pd.read_csv(
                         valuation_file, index_col=['day'], usecols=[
                             "day", "pe_ratio"])
-                    df_tmp = df_tmp[~df_tmp.reset_index(
-                    ).duplicated().values]  # 去重
+                    df_tmp = df_tmp[~df_tmp.reset_index().duplicated().values]  # 去重
                     if not df_tmp.empty:
                         df_valuation = pd.merge(
                             df_valuation, df_tmp, how="outer", left_index=True, right_index=True)
@@ -932,7 +957,7 @@ def get_index_weights_from_jq():
                 update_weight_file, index_col=[
                     "date", "code"], encoding="gbk")
             if len(update_index.index.levels[0]) != 0:
-                start_date = get_max_date(update_index.index.levels[0])
+                start_date = mylib.get_max_date(update_index.index.levels[0])
                 print("1start_date:%r" % start_date)
             else:
                 start_date = index_all_info.loc[index_code, [
@@ -1011,101 +1036,14 @@ def get_index_weights_from_jq():
 # ======================================================================================================
 
 
-def get_max_date(datelist):
-    '''
-    功能：从一个str的list中获取最大的日期，形如：['2015/10/30', '2015/11/30', '2015/12/31', '2015/5/29', '2015/6/30']
-    :param datelist:list
-    :return:str 最大的日期
-    '''
-    if len(datelist) == 0:
-        return ""
-    dt1 = []
-    for i in datelist:
-        if '/' in i:
-            dt1.append(datetime.strptime(i, "%Y/%m/%d"))
-        if '-' in i:
-            dt1.append(datetime.strptime(i, "%Y-%m-%d"))
-
-    tmp = dt1.pop(0)
-    for j in dt1:
-        delta = j - tmp
-        if delta.days > 0:
-            tmp = j
-    return tmp.strftime("%Y-%m-%d")
-# ======================================================================================================
-
-
-def get_close_trade_date(strDate, direct):
-    '''
-        功能：获取节假日最近的一个交易日，比如2018-10-1日，的前一个交易日是9-28日
-        这里是生成了一个已strDate为end的，往前推10个日期的时间序列
-        :param strDate：str类型日期，如"2018-10-01"
-               1:日期之后的交易时间，如2018-10-01日后的交易日期
-               -1：日期之前的交易时间，如2018-10-01日前的交易日期
-        :return:str 类型，如果没有找到则返回strDate的值
-    '''
-    trade_date = pd.read_csv(
-        "C:\\quanttime\\data\\basic_info\\all_trade_day.csv",
-        index_col=["trade_date"])
-    if direct == -1:
-        dates = pd.date_range(end=strDate, periods=10)
-        dates = list(reversed(dates.tolist()))
-        for tmpDate in dates:
-            try:
-                return trade_date.index[trade_date.index.tolist().index(
-                    tmpDate.date().strftime("%Y-%m-%d"))]
-            except ValueError:
-                continue
-    elif direct == 1:
-        dates = pd.date_range(start=strDate, periods=10)
-        for tmpDate in dates.tolist():
-            try:
-                return trade_date.index[trade_date.index.tolist().index(
-                    tmpDate.date().strftime("%Y-%m-%d"))]
-            except ValueError:
-                continue
-    else:
-        return strDate
-    return strDate
-# ======================================================================================================
-
-
-def get_trade_list(startDate, endDate):
-    '''
-    功能：获取startDate, endDate交易日时间段，该时间查表于all_trade_day.csv
-    :param startDate: str，该值需要在all_trade_day.csv内
-    :param endDate: str 该值需要在all_trade_day.csv
-    :return: list
-    '''
-    print("input startDate:%r,endDate: %r" % (startDate, endDate))
-    if "/" in startDate:
-        startDate = datetime.strptime(
-            startDate, "%Y/%m/%d").strftime("%Y-%m-%d")
-    if "/" in endDate:
-        endDate = datetime.strptime(endDate, "%Y/%m/%d").strftime("%Y-%m-%d")
-
-    trade_date = pd.read_csv(
-        "C:\\quanttime\\data\\basic_info\\all_trade_day.csv",
-        index_col=["trade_date"])
-    try:
-        start = trade_date.loc[startDate][0]
-        print("start:%r" % start)
-        end = trade_date.loc[endDate][0]
-        print("end:%r" % end)
-    except KeyError:
-        print("传入的参数日期不在trade day中")
-        return []
-    trade_days = trade_date.iloc[start:end + 1, 0]
-    return trade_days.index.tolist()
-
-
 if __name__ == "__main__":
-    get_tushare_index_basic_info()
-    # update_sw_index()
+    #get_tushare_index_basic_info()
+    # update_jq_index()
+    get_sw_index_daily_by_opendatatool()
     # maintenance_index_valuation()
     # get_index_weights_from_jq()
     # get_tushare_index()
-    # tushare_index_PEPB_info()
+    #tushare_index_PEPB_info()
     #tmp = get_close_trade_date("2019-01-03",1)
     #tmp = get_trade_list("2019-01-03","2019-12-27")
     # print(tmp)
