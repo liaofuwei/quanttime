@@ -44,11 +44,15 @@ class WatchMainWindows(QtCore.QObject):
         self.pro = ts.pro_api()
 
         # 银行基本信息更新按钮信号连接
+        self.hkd_rmb = 0.87909
+        self.ui.lineEdit_5.setText(str(self.hkd_rmb))
         bank_thread = BankThread()
         self.ui.pushButton.clicked.connect(bank_thread.update_bank_industry_table)
         # 银行分红信息及系统排名表刷新信号连接
         self.ui.pushButton_2.clicked.connect(bank_thread.process_bank_dividend)
         bank_thread.df_bank_out.connect(self.update_bank_dividend)
+        self.ui.pushButton_6.clicked.connect(bank_thread.get_AH_premium)
+        bank_thread.signal_df_ah_premium.connect(self.display_bank_AH_premium)
 
         # 设定默认的行情数据, 通达信默认行情源，tushare，joinquant可选
         self.ui.checkBox_4.setCheckState(QtCore.Qt.Unchecked)
@@ -91,6 +95,8 @@ class WatchMainWindows(QtCore.QObject):
         index_select_dialog.signal_select_index.connect(self.display_selected_index_analyse)
         self.ui.tableWidget_4.cellClicked.connect(self.get_display_weight)
         self.ui.tableWidget_4.cellDoubleClicked.connect(self.get_display_weight)
+        self.ui.pushButton_7.clicked.connect(index_select_dialog.index_rotation)
+        index_select_dialog.signal_rotation_result.connect(self.display_ratation_table)
 
         main_window.show()
         sys.exit(app.exec_())
@@ -148,6 +154,34 @@ class WatchMainWindows(QtCore.QObject):
 
             except KeyError:
                 continue
+    # ========================================
+
+    def display_bank_AH_premium(self, df):
+        '''
+        获取银行股的AH折溢价情况，并更新数据表
+        :param df 从银行业务处理线程获取的AH折溢价情况
+        :return:
+        '''
+        if df.empty:
+            print("获取银行AH折溢价失败")
+            return
+        self.ui.tableWidget_9.setRowCount(len(df))
+        exchange_rate = float(self.ui.lineEdit_5.text())
+        for i, row in df.iterrows():
+            item = QtWidgets.QTableWidgetItem(row['name'])
+            self.ui.tableWidget_9.setItem(i, 0, item)
+            item = QtWidgets.QTableWidgetItem(row['a_code'])
+            self.ui.tableWidget_9.setItem(i, 1, item)
+            item = QtWidgets.QTableWidgetItem(row['hk_code'])
+            self.ui.tableWidget_9.setItem(i, 2, item)
+            premium = "0"
+            if row['last_price_a'] == 0:
+                premium = "--"
+            else:
+                premium = (row['last_price_h'] * exchange_rate - row['last_price_a']) / row['last_price_a']
+                premium = str(round(premium * 100, 2)) + '%'
+            item = QtWidgets.QTableWidgetItem(premium)
+            self.ui.tableWidget_9.setItem(i, 3, item)
 
     # ========================================
     def analyse_security_by_choice(self):
@@ -393,6 +427,67 @@ class WatchMainWindows(QtCore.QObject):
             item = QtWidgets.QTableWidgetItem(str(df.iloc[row, df.columns.get_loc('weight')]))
             self.ui.tableWidget_7.setItem(row, 2, item)
 
+    # =========================================
+    def display_ratation_table(self, stander_list, plus_list):
+        '''
+        显示指数轮动的结果，该结果由指数处理的py处理后emit过来，按照两个list
+        ["399905", "399673", "399006"]排列结果
+        "399300": "沪深300",
+        "399905": "中证500",
+        "399673": "创业板50",
+        "399006": "创业板指数"
+        :param stander_list: 标准指数轮动模型的结果
+        :param plus_list: plus指数轮动结果
+        :return:
+        '''
+        print("stander result:%r" % stander_list)
+        print("plus result:%r" % plus_list)
+
+        for result in stander_list:
+            if result[0] == "399905":
+                item = QtWidgets.QTableWidgetItem(str(result[1]))
+                self.ui.tableWidget_8.setItem(0, 0, item)
+                item = QtWidgets.QTableWidgetItem(str(result[2]))
+                self.ui.tableWidget_8.setItem(0, 1, item)
+                item = QtWidgets.QTableWidgetItem(str(result[3]))
+                self.ui.tableWidget_8.setItem(0, 2, item)
+            if result[0] == "399006":
+                item = QtWidgets.QTableWidgetItem(str(result[1]))
+                self.ui.tableWidget_10.setItem(0, 0, item)
+                item = QtWidgets.QTableWidgetItem(str(result[2]))
+                self.ui.tableWidget_10.setItem(0, 1, item)
+                item = QtWidgets.QTableWidgetItem(str(result[3]))
+                self.ui.tableWidget_10.setItem(0, 2, item)
+            if result[0] == "399673":
+                item = QtWidgets.QTableWidgetItem(str(result[1]))
+                self.ui.tableWidget_11.setItem(0, 0, item)
+                item = QtWidgets.QTableWidgetItem(str(result[2]))
+                self.ui.tableWidget_11.setItem(0, 1, item)
+                item = QtWidgets.QTableWidgetItem(str(result[3]))
+                self.ui.tableWidget_11.setItem(0, 2, item)
+
+        for result in plus_list:
+            if result[0] == "399905":
+                item = QtWidgets.QTableWidgetItem(str(result[1]))
+                self.ui.tableWidget_8.setItem(1, 0, item)
+                item = QtWidgets.QTableWidgetItem(str(result[2]))
+                self.ui.tableWidget_8.setItem(1, 1, item)
+                item = QtWidgets.QTableWidgetItem(str(result[3]))
+                self.ui.tableWidget_8.setItem(1, 2, item)
+            if result[0] == "399006":
+                item = QtWidgets.QTableWidgetItem(str(result[1]))
+                self.ui.tableWidget_10.setItem(1, 0, item)
+                item = QtWidgets.QTableWidgetItem(str(result[2]))
+                self.ui.tableWidget_10.setItem(1, 1, item)
+                item = QtWidgets.QTableWidgetItem(str(result[3]))
+                self.ui.tableWidget_10.setItem(1, 2, item)
+            if result[0] == "399673":
+                item = QtWidgets.QTableWidgetItem(str(result[1]))
+                self.ui.tableWidget_11.setItem(1, 0, item)
+                item = QtWidgets.QTableWidgetItem(str(result[2]))
+                self.ui.tableWidget_11.setItem(1, 1, item)
+                item = QtWidgets.QTableWidgetItem(str(result[3]))
+                self.ui.tableWidget_11.setItem(1, 2, item)
 
 
 if __name__ == "__main__":
