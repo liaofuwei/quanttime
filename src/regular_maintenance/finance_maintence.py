@@ -706,7 +706,6 @@ class financeMaintenance:
             except ValueError:
                 print("记录的最后更新日期格式或记录有误")
 
-
         # 股票基本信息只获取ts_code与list_date
         stock_basic = self.pro.stock_basic(exchange='', list_status='L', fields='ts_code,list_date')
         if stock_basic.empty:
@@ -751,6 +750,7 @@ class financeMaintenance:
                 df_data = self.pro.daily_basic(ts_code=stock_code, start_date=start_date, end_date=end_date)
                 if df_data.empty:
                     print("code:%r 本次更新获取的数据为空" % stock_code)
+                    time.sleep(0.3)
                     continue
                 df_data = df_data.set_index("trade_date")
                 df_data = df_data.sort_index(ascending=True)
@@ -759,6 +759,7 @@ class financeMaintenance:
                 table = finance_db[stock_code[0:6]]
                 table.insert_many(df_data.to_dict(orient="record"))
                 print("tushare 更新valuation数据 完成，code：%s" % stock_code)
+                time.sleep(0.3)
             else:
                 start_date = "20050103"
                 df_data = self.pro.daily_basic(ts_code=stock_code, start_date=start_date, end_date=end_date)
@@ -777,6 +778,171 @@ class financeMaintenance:
         last_update.to_csv(r'C:\quanttime\src\regular_maintenance\valuation_last_update.csv')
 
     # ============================================
+    def update_valuation_by_ts_day(self):
+        '''
+        tushare可以按天获取所有stock的valuation数据，然后分别更新到对应不同code文件内
+        对于相同日期小于500只股票的日期，后面统一采用单只按日获取更新
+        当天一次性获取的所有股票的valuation，增加一个文件夹单独存储，按日期命名
+        平时更新使用该方法
+        存储目录为"C:\\quanttime\\data\\finance\\ts\\valuation\\"
+        因为不用输入ts_code，即不需要首先获取所有股票的code信息
+        :return:
+        '''
+        last_update = pd.read_csv(r'C:\quanttime\src\regular_maintenance\valuation_last_update.csv',
+                                  index_col=["module"], parse_dates=["date"])
+        print(last_update)
+        module_name = 'update_valuation_by_ts_day'
+        last_update_date = 0
+
+        # 将空值填0
+        last_update = last_update.fillna(0)
+        if module_name in last_update.index:
+            last_update_date = last_update.loc[module_name, ["date"]].date
+
+        if last_update_date != 0:
+            try:
+                if last_update_date.date() >= datetime.today().date() - timedelta(days=1):
+                    print("记录已更新，今日不用再更新")
+                    return
+            except ValueError:
+                print("记录的最后更新日期格式或记录有误")
+
+        # 股票基本信息只获取ts_code与list_date
+        stock_basic = self.pro.stock_basic(exchange='', list_status='L', fields='ts_code,list_date')
+        if stock_basic.empty:
+            print("获取ts股票基本信息失败，return")
+            return
+        stock_basic = stock_basic.set_index("ts_code")
+        basic_dir = "C:\\quanttime\\data\\finance\\ts\\valuation\\"
+        columns_name = ['ts_code', 'close', 'turnover_rate', 'turnover_rate_f', 'volume_ratio', 'pe', 'pe_ttm', 'pb',
+                        'ps', 'ps_ttm', 'total_share', 'float_share', 'free_share', 'total_mv', 'circ_mv']
+        valuation_data_last_record = pd.DataFrame(columns=columns_name)
+        valuation_data_last_record.index.name = "trade_date"
+        list_empty_code = []
+        for stock_code in stock_basic.index:
+            # print("process:%s...." % stock_code)
+            valuation_file = basic_dir + stock_code + '.csv'
+            if os.path.exists(valuation_file):
+                valuation_data = pd.read_csv(valuation_file, index_col=["trade_date"], parse_dates=True)
+                if valuation_data.empty:
+                    list_empty_code.append(stock_code)
+                    continue
+                # 提取记录中的最后一条记录
+                valuation_data_last_record = valuation_data_last_record.append(valuation_data.iloc[-1, :])
+                # print("valution len:%d" % len(valuation_data_last_record))
+            else:
+                list_empty_code.append(stock_code)
+        # 更新的截止日期
+        et = datetime.today().date() - timedelta(days=1)
+        et = et.strftime("%Y-%m-%d")
+
+        # 提取最后更新记录时间集
+        list_record_last_date = valuation_data_last_record.index.unique()
+        dic_date_stocks = {}
+        for last_date in list_record_last_date:
+            # same_last_update_stock是具有相同最后更新日期的stock集合
+            same_last_update_stock = valuation_data_last_record.loc[last_date, ["ts_code"]]["ts_code"]
+            if isinstance(same_last_update_stock, str):
+                dic_date_stocks[str(last_date.date())] = valuation_data_last_record.loc[last_date, ["ts_code"]][
+                    "ts_code"]
+            else:
+                dic_date_stocks[str(last_date.date())] = valuation_data_last_record.loc[last_date, ["ts_code"]][
+                    "ts_code"].tolist()
+
+        finance_db = self.mongo_client["ts_finance_db"]
+        # 对于某个日期，数量少(小于500只股票)的stock，采取按code，一只一只更新，不采取批量更新的办法
+        list_single_update_by_code = []
+        for last_update_date, stock_codes in dic_date_stocks.items():
+            if len(stock_codes) < 500:
+                list_single_update_by_code.append(stock_codes)
+                continue
+            list_trade_date = trade_date_util.get_trade_date_range(last_update_date, et)
+            if list_trade_date:
+                # get_trade_date_range返回的是闭区间，所有把记录的最后一天的下一天，作为开始更新更新的时间
+                list_trade_date.pop(0)
+                for day in list_trade_date:
+                    tmp = day.split('-')
+                    day = tmp[0] + tmp[1] + tmp[2]
+                    df_update_data = self.pro.daily_basic(ts_code='', trade_date=day)
+                    if df_update_data.empty:
+                        print("%s, 获取当天valuation，返回为空" % day)
+                        continue
+                    # 新增一个按天存储所有股票valuation的文件夹，按照日期命名
+                    tmp_file = "C:\\quanttime\\data\\finance\\ts\\valuation_day\\" + day + ".csv"
+                    df_update_data.to_csv(tmp_file)
+                    df_update_data = df_update_data.set_index("trade_date")
+                    for i in range(len(df_update_data)):
+                        df_stock = pd.DataFrame(data=[df_update_data.iloc[i].values],
+                                                index=pd.Index([df_update_data.index[i]]),
+                                                columns=columns_name)
+                        update_stock_code = df_update_data.iloc[i, df_update_data.columns.get_loc('ts_code')]
+                        if update_stock_code in stock_codes:
+                            print("存储code:%s ...." % update_stock_code)
+                            valuation_file = basic_dir + update_stock_code + '.csv'
+                            df_stock.to_csv(valuation_file, mode='a', header=None)
+                            # 存数据库
+                            table = finance_db[update_stock_code[0:6]]
+                            table.insert_many(df_stock.to_dict(orient="record"))
+
+            print("批量更新结束，本次共更新：%d" % len(stock_codes))
+        tmp_list = []
+        print("需要单只更新的code list:%r" % list_single_update_by_code)
+        for i in list_single_update_by_code:
+            if isinstance(i, list):
+                for j in i:
+                    tmp_list.append(j)
+            else:
+                tmp_list.append(i)
+        list_single_update_by_code = tmp_list
+
+        for i_code in list_single_update_by_code:
+            self.update_valuation_by_ts_by_code(i_code)
+
+        # 更新最后更新的时间
+        last_update.loc[module_name, ["date"]] = str(datetime.today().date() - timedelta(days=1))
+        last_update.to_csv(r'C:\quanttime\src\regular_maintenance\valuation_last_update.csv')
+        print("本次更新结束")
+
+    # =========================================
+    def update_valuation_by_ts_by_code(self, ts_code):
+        '''
+        使用tushare接口，单只股票更新valuation
+        :param ts_code: ts code
+        :return:
+        '''
+        basic_dir = "C:\\quanttime\\data\\finance\\ts\\valuation\\"
+        finance_db = self.mongo_client["ts_finance_db"]
+        end_date = str(datetime.today().date() - timedelta(days=1))
+        tmp_list = end_date.split('-')
+        end_date = tmp_list[0] + tmp_list[1] + tmp_list[2]
+        valuation_file = basic_dir + ts_code + '.csv'
+        if os.path.exists(valuation_file):
+            valuation_data = pd.read_csv(valuation_file, index_col=["trade_date"], parse_dates=True)
+            if valuation_data.index[-1].date() >= datetime.today().date() - timedelta(days=1):
+                print("code：%s 已经是最新了，更次不更新" % ts_code)
+                return
+            start_date = valuation_data.index[-1].date().strftime("%Y-%m-%d")
+            start_date = trade_date_util.get_close_trade_date(start_date, 1)
+            tmp_list = start_date.split("-")
+            if len(tmp_list) != 3:
+                print("日期解析的格式有误，code：%s" % ts_code)
+                return
+            start_date = tmp_list[0] + tmp_list[1] + tmp_list[2]
+            df_data = self.pro.daily_basic(ts_code=ts_code, start_date=start_date, end_date=end_date)
+            if df_data.empty:
+                print("code:%r 本次更新获取的数据为空" % ts_code)
+                return
+            df_data = df_data.set_index("trade_date")
+            df_data = df_data.sort_index(ascending=True)
+            df_data.to_csv(valuation_file, mode='a', header=None)
+            # 存数据库
+            table = finance_db[ts_code[0:6]]
+            table.insert_many(df_data.to_dict(orient="record"))
+            print("tushare 更新valuation数据 完成，code：%s" % ts_code)
+
+
+
+    # =========================================
     def update_indicator_by_ts(self):
         '''
         运行时间可以在每年的1-15至4-30 一季报年报
@@ -869,5 +1035,6 @@ if __name__ == "__main__":
     # regular.batch_update_case_flow('2018q3')
     # regular.update_indicator(["000001.XSHE"],'2018q2')
     # regular.batch_update_indicator('2018q3')
-    regular.update_valuation_by_ts()
+    #regular.update_valuation_by_ts()
     # regular.update_indicator_by_ts()
+    regular.update_valuation_by_ts_day()
