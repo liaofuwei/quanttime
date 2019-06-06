@@ -90,7 +90,7 @@ def update_jq_index():
             data = pd.read_csv(update_file_name, index_col=["date"], parse_dates=["date"])
             # 读取的最后日期往后推一天，作为更新的起始日期
             start_time = data.index[-1].date() + timedelta(days=1)
-            if start_time >= end_time:
+            if start_time > end_time:
                 logging.info("index：%s 记录最后时间为本次更新结束时间，本次无需更新" % str(index_name))
                 print("index：%s 记录最后时间为本次更新结束时间，本次无需更新" % str(index_name))
                 continue
@@ -973,9 +973,9 @@ def get_index_weights_from_jq():
             dt_start = "%r-%r" % (start_date.year, start_date.month)
             dt_end = "%r-%r" % (today.year, today.month - 1)
             # print("========================")
-            #print("dt_start:%r" % dt_start)
-            #print("2start_date:%r" % start_date)
-            #print("dt_end:%r" % dt_end)
+            # print("dt_start:%r" % dt_start)
+            # print("2start_date:%r" % start_date)
+            # print("dt_end:%r" % dt_end)
             # print("========================")
             if (start_date.year == today.year) and (
                     start_date.month == (today.month - 1)):
@@ -1038,8 +1038,8 @@ def get_index_weights_from_jq():
 
 if __name__ == "__main__":
     #get_tushare_index_basic_info()
-    # update_jq_index()
-    get_sw_index_daily_by_opendatatool()
+    update_jq_index()
+    #get_sw_index_daily_by_opendatatool()
     # maintenance_index_valuation()
     # get_index_weights_from_jq()
     # get_tushare_index()
