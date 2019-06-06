@@ -33,6 +33,9 @@ import trade_date_util
 
 5、20190529增加tushare的每日指标更新，相当于joinquant的valuation
    存储目录为"C:\\quanttime\\data\\finance\\ts\\valuation\\"
+   
+6、20190604增加tushare每日指标更新方式，按日获取所有的股票的valuation，然后分别更新到对应的文件夹
+   加快更新的效率
 
 '''
 
@@ -403,6 +406,187 @@ class financeMaintenance:
             print("update code:%r, end" % code)
 
     # ==============================================================================
+
+    def update_valuation_by_jq_day(self):
+        '''
+        更新joinquant的valuation表。采取按天获取所有的stock，然后按股票更新到不同的文件夹
+        改善更新的效率
+        :return:
+        '''
+        last_update = pd.read_csv(r'C:\quanttime\src\regular_maintenance\valuation_last_update.csv',
+                                  index_col=["module"], parse_dates=["date"])
+        print(last_update)
+        module_name = 'update_valuation_by_jq_day'
+        last_update_date = 0
+
+        # 将空值填0
+        last_update = last_update.fillna(0)
+        if module_name in last_update.index:
+            last_update_date = last_update.loc[module_name, ["date"]].date
+
+        if last_update_date != 0:
+            try:
+                if last_update_date.date() >= datetime.today().date() - timedelta(days=1):
+                    print("记录已更新，今日不用再更新")
+                    return
+            except ValueError:
+                print("记录的最后更新日期格式或记录有误")
+        df_stocks_info = get_all_securities(types=['stock'])
+        # 提取还在上市的股票
+        df_stocks_info = df_stocks_info[df_stocks_info["end_date"] == "2200-01-01"]
+        list_stocks_code = df_stocks_info.index.tolist()
+        list_date_stock = []
+        # valuation文件夹中没有，说明是上市没多久的新股，该新股放入新股list
+        list_new_stocks = []
+        for stock_code in list_stocks_code:
+            valuation_file = self.finance_dir + "valuation\\" + stock_code + '.csv'
+            if not os.path.exists(valuation_file):
+                print("valution table:%s 不存在" % stock_code)
+                list_new_stocks.append(stock_code)
+                continue
+            df_valuation = pd.read_csv(valuation_file, parse_dates=["day"])
+            if df_valuation.empty:
+                print("读取的valuation：%s为空" % stock_code)
+                continue
+            tmp_last_date = df_valuation.iloc[-1, df_valuation.columns.get_loc('day')].date()
+            tmp_stock_code = df_valuation.iloc[-1, df_valuation.columns.get_loc('code')]
+            list_date_stock.append([tmp_last_date, tmp_stock_code])
+        df_date_stock = pd.DataFrame(data=list_date_stock, columns=["date", "code"])
+        df_date_stock = df_date_stock.set_index("date")
+        list_different_date = df_date_stock.index.unique()
+        dic_date_stocks = {}
+        for last_date in list_different_date:
+            # same_last_update_stock是具有相同最后更新日期的stock集合
+            same_last_update_stock = df_date_stock.loc[last_date, ["code"]]["code"]
+            if isinstance(same_last_update_stock, str):
+                dic_date_stocks[str(last_date)] = df_date_stock.loc[last_date, ["code"]]["code"]
+            else:
+                dic_date_stocks[str(last_date)] = df_date_stock.loc[last_date, ["code"]]["code"].tolist()
+
+        finance_db = self.mongo_client["finance_db"]
+        # 对于某个日期，数量少(小于500只股票)的stock，采取按code，一只一只更新，不采取批量更新的办法
+        list_single_update_by_code = []
+        cloumns_name = ['Unnamed: 0', 'id', 'day', 'code', 'pe_ratio', 'turnover_ratio', 'pb_ratio', 'ps_ratio',
+                        'pcf_ratio', 'capitalization', 'market_cap', 'circulating_cap', 'circulating_market_cap',
+                        'pe_ratio_lyr']
+        for tmp_last_date, stock_codes in dic_date_stocks.items():
+            if len(stock_codes) < 500:
+                list_single_update_by_code.append(stock_codes)
+                continue
+            tmp_start = datetime.strptime(tmp_last_date, "%Y-%m-%d") + timedelta(days=1)
+            tmp_end = datetime.today().date() - timedelta(days=1)
+            list_trade_date = get_trade_days(start_date=tmp_start, end_date=tmp_end)
+            if not list_trade_date:
+                print("不用更新，start：%s，end：%s" % (str(tmp_start), str(tmp_end)))
+                continue
+            for tmp_update_date in list_trade_date:
+                df_data = get_fundamentals(query(valuation).filter(
+                        # 这里不能使用 in 操作, 要使用in_()函数
+                        valuation.code.in_(list_stocks_code)
+                    ), date=tmp_update_date)
+                if df_data.empty:
+                    print("获取的valuation数据为空")
+                    continue
+                file_path = self.finance_dir + "\\valuation_day\\" + str(tmp_last_date) + '.csv'
+                df_data.to_csv(file_path)
+                for i in range(len(df_data)):
+                    df_stock = pd.DataFrame(data=[df_data.iloc[i].values],
+                                            index=pd.Index([df_data.index[i]]),
+                                            columns=df_data.columns)
+                    # 重新排列列名，与已存在数据匹配
+                    record_columns = ['id', 'day', 'code', 'pe_ratio', 'turnover_ratio', 'pb_ratio',
+                                      'ps_ratio', 'pcf_ratio', 'capitalization', 'market_cap', 'circulating_cap',
+                                      'circulating_market_cap','pe_ratio_lyr']
+                    df_stock = df_stock[record_columns]
+                    tmp_name = df_data.iloc[i, df_data.columns.get_loc('code')]
+                    if tmp_name in list_new_stocks:
+                        print("%s 是新股，不增量更新" % tmp_name)
+                    print("正在处理批量更新的 %s。。。。" % tmp_name)
+                    file_path = self.finance_dir + "\\valuation\\" + tmp_name + '.csv'
+                    df_stock.to_csv(file_path, mode='a', header=None)
+                    # 存数据库
+                    table = finance_db[tmp_name[0:6]]
+                    table.insert_many(df_stock.to_dict(orient="record"))
+
+        print("需要单只更新的code list:%r" % list_single_update_by_code)
+        tmp_list = []
+        for i in list_single_update_by_code:
+            if isinstance(i, list):
+                for j in i:
+                    tmp_list.append(j)
+            else:
+                tmp_list.append(i)
+        list_single_update_by_code = tmp_list
+
+        for i_code in list_single_update_by_code:
+            self.update_valuation_jq_by_code(i_code)
+
+        # 处理新股的更新
+        print("本次需要更新的新股：%r" % list_new_stocks)
+        for i_code in list_new_stocks:
+            self.update_valuation_jq_by_code(i_code)
+
+        # 更新最后更新的时间
+        last_update.loc[module_name, ["date"]] = str(datetime.today().date() - timedelta(days=1))
+        last_update.to_csv(r'C:\quanttime\src\regular_maintenance\valuation_last_update.csv')
+        print("本次更新结束")
+
+    # ==============================================================================
+
+    def update_valuation_jq_by_code(self, code):
+        '''
+        更新单只股票的聚宽valuation
+        :param code: 股票代码
+        :return:
+        '''
+        valuation_file = self.finance_dir + "\\valuation\\" + code + '.csv'
+        finance_db = self.mongo_client["finance_db"]
+        end_date = datetime.today().date() - timedelta(days=1)
+        print(code)
+        if os.path.exists(valuation_file):
+            df_valuation = pd.read_csv(valuation_file, index_col=["day"], parse_dates=True)
+            last_date = df_valuation.index[-1].date().strftime("%Y-%m-%d")
+            trade_range = trade_date_util.get_trade_date_range(last_date, end_date.strftime("%Y-%m-%d"))
+            if len(trade_range) == 1:
+                print("%s不用更新,start=%s, end=%s" % (code, last_date, end_date))
+                return
+            q = query(valuation).filter(valuation.code == code)
+            df_data = get_fundamentals_continuously(q, end_date=end_date, count=len(trade_range)-1).to_frame()
+            if df_data.empty:
+                print("获取的valuation为空，stock：%s" % code)
+                return
+            # 重新排列列名，与已存在数据匹配
+            record_columns = ['Unname:1', 'id', 'day', 'code', 'pe_ratio', 'turnover_ratio', 'pb_ratio',
+                              'ps_ratio', 'pcf_ratio', 'capitalization', 'market_cap', 'circulating_cap',
+                              'circulating_market_cap', 'pe_ratio_lyr']
+            # 无用列，纯粹为了匹配之前的格式
+            df_data["Unname:1"] = 0
+            df_data = df_data.rename(columns={'day.1': 'day', 'code.1': 'code'})
+            df_data[record_columns].to_csv(valuation_file, index=False, mode='a', header=None)
+            # 存数据库
+            table = finance_db[code[0:6]]
+            table.insert_many(df_data.to_dict(orient="record"))
+            print("更新完stock：%s" % code)
+        else:
+            q = query(valuation).filter(valuation.code == code)
+            df_data = get_fundamentals_continuously(q, end_date=end_date, count=100).to_frame()
+            if df_data.empty:
+                print("获取的valuation为空，stock：%s" % code)
+                return
+            # 重新排列列名，与已存在数据匹配
+            record_columns = ['Unname:1', 'id', 'day', 'code', 'pe_ratio', 'turnover_ratio', 'pb_ratio',
+                              'ps_ratio', 'pcf_ratio', 'capitalization', 'market_cap', 'circulating_cap',
+                              'circulating_market_cap', 'pe_ratio_lyr']
+
+            df_data["Unname:1"] = 0
+            df_data = df_data.rename(columns={'day.1': 'day', 'code.1': 'code'})
+            df_data[record_columns].to_csv(valuation_file, index=False)
+            # 存数据库
+            table = finance_db[code[0:6]]
+            table.insert_many(df_data.to_dict(orient="record"))
+            print("更新完stock：%s" % code)
+
+    # ==========================================
 
     def update_balance_by_code(self, code_list, strDate):
         '''
@@ -1037,4 +1221,5 @@ if __name__ == "__main__":
     # regular.batch_update_indicator('2018q3')
     #regular.update_valuation_by_ts()
     # regular.update_indicator_by_ts()
-    regular.update_valuation_by_ts_day()
+    # regular.update_valuation_by_jq_day()
+    regular.update_valuation_by_jq_day()
