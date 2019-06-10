@@ -38,6 +38,17 @@ def get_max_date(datelist):
 # ==============================================
 
 
+def get_max_date2(date_list):
+    '''
+    功能：从一个str的list中获取最大的日期，形如：['2015/10/30', '2015/11/30', '2015/12/31', '2015/5/29', '2015/6/30']
+    :param date_list:list
+    :return:最大的日期,datetime.date
+    '''
+    date_list = [parse(d).date() for d in date_list]
+    return max(date_list)
+# ================================================
+
+
 def get_close_trade_date(strDate, direct):
     '''
         功能：获取节假日最近的一个交易日，比如2018-10-1日，的前一个交易日是9-28日
@@ -233,10 +244,11 @@ def get_next_trade_date(str_date):
 def get_trade_date_range(start_date, end_date):
     '''
     获取start_date到end_date的所有交易日
-    :param start_date: 起始日期 str
-    :param end_date: 结束日期 str
+    :param start_date: 起始日期 str, datetime
+    :param end_date: 结束日期 str, datetime
     :return: str-list 如果start_date和end_date都属于交易日，返回list包含起始结束日期
     '''
+
     start = parse(start_date)
     end = parse(end_date)
     trade_date_file = r'C:\quanttime\data\basic_info\all_trade_day.csv'
@@ -262,6 +274,59 @@ def get_trade_date_range(start_date, end_date):
 
     tmp = trade_date.index[start_pos:end_pos + 1].tolist()
     return [str(x.date()) for x in tmp]
+# =================================
+
+
+def get_trade_date_range2(start_date, end_date):
+    '''
+    获取start_date到end_date的所有交易日
+    输入参数可以是datetime，date，str
+    :param start_date: 起始日期
+    :param end_date: 结束日期
+    :return: datetime.date-list 如果start_date和end_date都属于交易日，返回list包含起始结束日期
+    '''
+    start = to_date(start_date)
+    end = to_date(end_date)
+    if start is None or end is None:
+        return []
+
+    trade_date_file = r'C:\quanttime\data\basic_info\all_trade_day.csv'
+    trade_date = pd.read_csv(trade_date_file, index_col=["trade_date"], parse_dates=True)
+    list_trade_date = trade_date.index.tolist()
+    list_trade_date = [d.date() for d in list_trade_date]
+    return [d for d in list_trade_date if start <= d <= end]
+
+# =========================
+
+
+def to_date(date):
+    '''
+    convert_date('2015-1-1')
+    datetime.date(2015, 1, 1)
+
+    convert_date('2015-01-01 00:00:00')
+    datetime.date(2015, 1, 1)
+
+    convert_date(datetime.datetime(2015, 1, 1))
+    datetime.date(2015, 1, 1)
+
+    convert_date(datetime.date(2015, 1, 1))
+    datetime.date(2015, 1, 1)
+    '''
+    if is_str(date):
+        if ':' in date:
+            date = date[:10]
+        return datetime.strptime(date, '%Y-%m-%d').date()
+    elif isinstance(date, datetime):
+        return date.date()
+    elif isinstance(date, datetime.date):
+        return date
+    elif date is None:
+        return None
+
+
+def is_str(s):
+    return isinstance(s, str)
 
 # ============================================================
 if __name__ == "__main__":
@@ -270,6 +335,6 @@ if __name__ == "__main__":
     # print(get_trade_list("20190415","2019-04-19"))
     # ret = get_close_trade_date("2018-07-01", 1)
     # ret = get_next_trade_date("2019-5-6")
-    ret = get_trade_date_range("2019-5-1", "2019-5-11")
+    ret = get_trade_date_range2(datetime(2019, 5, 7), datetime(2019, 5, 10))
     print(ret)
 
