@@ -1,0 +1,8 @@
+1、首先定位ipython_notebook_config.py位于哪个文件夹目录下
+cmd下，输入 ipython locate
+如果没有ipython_notebook_config.py，利用改命令创建
+cmd下输入 ipython profile create 后面可以加参数，比如（ ipython profile create aaa，则会创建一个profile_aaa的文件夹）
+要使用该配置文件，使用该命令打开notebook （ipython notebook --profile==aaa）
+打开ipython_notebook_config.py，修改c.NotebookApp.notebook_dir = u''
+注意，一、文件中c前面的#要去掉，且需要顶格，不能有空格，否则打开notebook会显示expected indent，Python是根据缩进来判断格式的
+      二、u''加入目录，比如u'C:\\pythoncoding\\notebook'
