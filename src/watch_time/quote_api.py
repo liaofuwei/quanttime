@@ -3,6 +3,7 @@ __author__ = 'Administrator'
 
 import tushare as ts
 from pytdx.hq import TdxHq_API
+from pytdx.exhq import TdxExHq_API
 from jqdatasdk import *
 import configparser
 import pandas as pd
@@ -340,7 +341,7 @@ def get_quote_by_futu(code_list):
 # =========================================
 
 
-def get_option_price(code):
+def get_option_price_by_sina(code):
     '''
     从新浪获取50ETF期权的实时数据
     返回的字段含义：
@@ -413,6 +414,27 @@ def get_option_price(code):
 # ===========================================
 
 
+def get_option_price_by_tdx(code):
+    '''
+    通过通达信获取option的实时价格
+    上海期权的市场代码是：8
+    :param code:
+    :return:df
+    df columns:
+    ['market', 'code', 'pre_close', 'open', 'high', 'low', 'price',
+       'kaicang', 'zongliang', 'xianliang', 'neipan', 'waipan', 'chicang',
+       'bid1', 'bid2', 'bid3', 'bid4', 'bid5', 'bid_vol1', 'bid_vol2',
+       'bid_vol3', 'bid_vol4', 'bid_vol5', 'ask1', 'ask2', 'ask3', 'ask4',
+       'ask5', 'ask_vol1', 'ask_vol2', 'ask_vol3', 'ask_vol4', 'ask_vol5']
+    '''
+    api_ex = TdxExHq_API()
+    data = pd.DataFrame()
+    if api_ex.connect('61.49.50.181', 7727):
+        data = api_ex.to_df(api_ex.get_instrument_quote(8, code))
+    return data
+# ===========================================
+
+
 def get_option_greek_alphabet(code):
     '''
     获取期权的指标数据
@@ -444,4 +466,6 @@ if __name__ == "__main__":
     # print([au, ag, time])
     # print(get_auag_quote_by_sina("ag0"))
     # get_quote_by_futu(['SH.601998', 'HK.00998'])
-    print(get_option_price("10001874"))
+    df = get_option_price_by_tdx("10001874")
+    print(df)
+    print(df.columns)
