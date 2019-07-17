@@ -352,16 +352,64 @@ def get_option_price(code):
     :param code: 期权代码
     :return:
     '''
+    dic_fields = {'buy_amount': '买量',
+                  'buy_price': '买价',
+                  'new_price': '最新价',
+                  'sell_price': '卖价',
+                  'sell_amount': '卖量',
+                  'position': '持仓量',
+                  'rose_increase': '涨幅',
+                  'exercise_price': '行权价',
+                  'pre_close': '昨收价',
+                  'open': '开盘价',
+                  'high_limit_price': '涨停价',
+                  'drop_stop_price': '跌停价',
+                  'ask5': '卖五',
+                  'ask_v5': '卖量五',
+                  'ask4':'卖四',
+                  'ask_v4': '卖量四',
+                  'ask3':'卖三',
+                  'ask_v3':'卖量三',
+                  'ask2': '卖二',
+                  'ask_v2': '申卖量二',
+                  'ask1':'卖一',
+                  'ask_v1': '卖量一',
+                  'bid1': '申买价一',
+                  'bid_v1': '申买量一 ',
+                  'bid2': '申买价二',
+                  'bid_v2': '申买量二',
+                  'bid3': '申买价三',
+                  'bid_v3': '申买量三',
+                  'bid4': '申买价四',
+                  'bid_v4': '申买量四',
+                  'bid5': '申买价五',
+                  'bid_v5': '申买量五',
+                  'time': '行情时间',
+                  'dominant_contract': '主力合约标识',
+                  'state': '状态码',
+                  'type': '标的证券类型',
+                  'underlying_stock': '标的股票',
+                  'name': '期权合约简称',
+                  'zhenfu': '振幅',
+                  'high': '最高价',
+                  'low': '最低价',
+                  'vol': '成交量',
+                  'amount': '成交额',
+                  'unkown1': 'unkown',
+                  'unkown2': 'unkown'
+
+    }
     url = "http://hq.sinajs.cn/list=CON_OP_{code}".format(code=code)
     data = get(url).content.decode('gbk')
     data = data[data.find('"') + 1: data.rfind('"')].split(',')
     fields = ['买量', '买价', '最新价', '卖价', '卖量', '持仓量', '涨幅', '行权价', '昨收价', '开盘价', '涨停价',
-              '跌停价', '申卖价五', '申卖量五', '申卖价四', '申卖量四', '申卖价三', '申卖量三', '申卖价二',
+              '跌停价', '卖五', '卖量五', '卖四', '卖量四', '卖三', '申卖量三', '申卖价二',
               '申卖量二', '申卖价一', '申卖量一', '申买价一', '申买量一 ', '申买价二', '申买量二', '申买价三',
               '申买量三', '申买价四', '申买量四', '申买价五', '申买量五', '行情时间', '主力合约标识', '状态码',
               '标的证券类型', '标的股票', '期权合约简称', '振幅', '最高价', '最低价', '成交量', '成交额']
-    result = list(zip(fields, data))
-    return result
+
+    df = pd.DataFrame(data=[data], columns=list(dic_fields.keys()))
+    return df
 # ===========================================
 
 
@@ -396,4 +444,4 @@ if __name__ == "__main__":
     # print([au, ag, time])
     # print(get_auag_quote_by_sina("ag0"))
     # get_quote_by_futu(['SH.601998', 'HK.00998'])
-    print(get_option_greek_alphabet("10001874"))
+    print(get_option_price("10001874"))
