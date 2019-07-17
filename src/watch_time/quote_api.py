@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 import urllib
 import re
 from futu import *
+from requests import get
 '''
 功能：屏蔽实时行情获取接口的选择
 接入的行情接口有：通达信，tushare，jq
@@ -69,12 +70,11 @@ ts_2_tdx_columns = {'pre_close': "last_close",
                     'a4_p': 'ask4',
                     'a4_v': 'ask_vol4',
                     'a5_p': 'ask5',
-                    'a5_v': 'ask_vol5'
-}
-
-
+                    'a5_v': 'ask_vol5'}
 
 # =====================================================
+
+
 def load_config(file=None):
     '''
     配置文件读取，可根据配置按优先级选取实时行情源
@@ -295,36 +295,36 @@ def get_quote_by_futu(code_list):
 
                 ret != RET_OK 返回错误字符串
 
-                =======================   =============   ==============================================================================
-                参数                       类型                        说明
-                =======================   =============   ==============================================================================
-                code                       str            股票代码
-                update_time                str            更新时间(yyyy-MM-dd HH:mm:ss)，（美股默认是美东时间，港股A股默认是北京时间）
-                last_price                 float          最新价格
-                open_price                 float          今日开盘价
-                high_price                 float          最高价格
-                low_price                  float          最低价格
-                prev_close_price           float          昨收盘价格
-                volume                     int            成交数量
-                turnover                   float          成交金额
-                turnover_rate              float          换手率
-                suspension                 bool           是否停牌(True表示停牌)
-                listing_date               str            上市日期 (yyyy-MM-dd)
-                equity_valid               bool           是否正股（为true时以下正股相关字段才有合法数值）
-                issued_shares              int            发行股本
-                total_market_val           float          总市值
-                net_asset                  int            资产净值
-                net_profit                 int            净利润
-                earning_per_share          float          每股盈利
-                outstanding_shares         int            流通股本
-                net_asset_per_share        float          每股净资产
-                circular_market_val        float          流通市值
-                ey_ratio                   float          收益率（该字段为比例字段，默认不展示%）
-                pe_ratio                   float          市盈率（该字段为比例字段，默认不展示%）
-                pb_ratio                   float          市净率（该字段为比例字段，默认不展示%）
-                pe_ttm_ratio               float          市盈率TTM（该字段为比例字段，默认不展示%）
-                price_spread               float          当前摆盘价差亦即摆盘数据的买档或卖档的相邻档位的报价差
-                （期权，涡轮相关字段省去）
+    =======================   =============   =================================================================
+    参数                       类型                        说明
+    =======================   =============   =================================================================
+    code                       str            股票代码
+    update_time                str            更新时间(yyyy-MM-dd HH:mm:ss)，（美股默认是美东时间，港股A股默认是北京时间）
+    last_price                 float          最新价格
+    open_price                 float          今日开盘价
+    high_price                 float          最高价格
+    low_price                  float          最低价格
+    prev_close_price           float          昨收盘价格
+    volume                     int            成交数量
+    turnover                   float          成交金额
+    turnover_rate              float          换手率
+    suspension                 bool           是否停牌(True表示停牌)
+    listing_date               str            上市日期 (yyyy-MM-dd)
+    equity_valid               bool           是否正股（为true时以下正股相关字段才有合法数值）
+    issued_shares              int            发行股本
+    total_market_val           float          总市值
+    net_asset                  int            资产净值
+    net_profit                 int            净利润
+    earning_per_share          float          每股盈利
+    outstanding_shares         int            流通股本
+    net_asset_per_share        float          每股净资产
+    circular_market_val        float          流通市值
+    ey_ratio                   float          收益率（该字段为比例字段，默认不展示%）
+    pe_ratio                   float          市盈率（该字段为比例字段，默认不展示%）
+    pb_ratio                   float          市净率（该字段为比例字段，默认不展示%）
+    pe_ttm_ratio               float          市盈率TTM（该字段为比例字段，默认不展示%）
+    price_spread               float          当前摆盘价差亦即摆盘数据的买档或卖档的相邻档位的报价差
+    （期权，涡轮相关字段省去）
 
     '''
     quote_ctx = OpenQuoteContext(host='127.0.0.1', port=11111)
@@ -337,9 +337,48 @@ def get_quote_by_futu(code_list):
     quote_ctx.close()
     return df_futu
 
+# =========================================
 
 
+def get_option_price(code):
+    '''
+    从新浪获取50ETF期权的实时数据
+    返回的字段含义：
+    var hq_str_CON_OP_代码="买量(0)，买价，最新价，卖价，卖量，持仓量，涨幅，行权价，昨收价，开盘价，涨停价，跌停价(11),
+    申卖 价五，申卖量五，申卖价四，申卖量四，申卖价三，申卖量三，申卖价二，申卖量二，申卖价一，申卖量一，申买价一，
+    申买量一 ，申买价二，申买量二，申买价三，申买量三，申买价四，申买量四，申买价五，申买量五，行情时间，主力合约标识，状态码，
+    标的证券类型，标的股票，期权合约简称，振幅(38)，最高价，最低价，成交量，成交额"
 
+    :param code: 期权代码
+    :return:
+    '''
+    url = "http://hq.sinajs.cn/list=CON_OP_{code}".format(code=code)
+    data = get(url).content.decode('gbk')
+    data = data[data.find('"') + 1: data.rfind('"')].split(',')
+    fields = ['买量', '买价', '最新价', '卖价', '卖量', '持仓量', '涨幅', '行权价', '昨收价', '开盘价', '涨停价',
+              '跌停价', '申卖价五', '申卖量五', '申卖价四', '申卖量四', '申卖价三', '申卖量三', '申卖价二',
+              '申卖量二', '申卖价一', '申卖量一', '申买价一', '申买量一 ', '申买价二', '申买量二', '申买价三',
+              '申买量三', '申买价四', '申买量四', '申买价五', '申买量五', '行情时间', '主力合约标识', '状态码',
+              '标的证券类型', '标的股票', '期权合约简称', '振幅', '最高价', '最低价', '成交量', '成交额']
+    result = list(zip(fields, data))
+    return result
+# ===========================================
+
+
+def get_option_greek_alphabet(code):
+    '''
+    获取期权的指标数据
+    :param code:
+    :return:
+    '''
+    url = "http://hq.sinajs.cn/list=CON_SO_{code}".format(code=code)
+    data = get(url).content.decode('gbk')
+    data = data[data.find('"') + 1: data.rfind('"')].split(',')
+    fields = ['期权合约简称', '成交量', 'Delta', 'Gamma', 'Theta', 'Vega', '隐含波动率', '最高价', '最低价', '交易代码',
+              '行权价', '最新价', '理论价值']
+    return list(zip(fields, [data[0]] + data[4:]))
+
+# ===========================================
 
 
 if __name__ == "__main__":
@@ -355,5 +394,6 @@ if __name__ == "__main__":
     # ag = price['AG0']['new_price']
     # time = price['AU0']['date']
     # print([au, ag, time])
-    #print(get_auag_quote_by_sina("ag0"))
-    get_quote_by_futu(['SH.601998', 'HK.00998'])
+    # print(get_auag_quote_by_sina("ag0"))
+    # get_quote_by_futu(['SH.601998', 'HK.00998'])
+    print(get_option_greek_alphabet("10001874"))
