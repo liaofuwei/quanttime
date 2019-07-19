@@ -316,7 +316,15 @@ def get_tushare_index():
         "399005.SZ",
         "399006.SZ",
         "399016.SZ",
-        "399300.SZ"]
+        "399300.SZ",
+        "000005.SH",
+        "000006.SH",
+        "000016.SH"]
+    yesterday = datetime.today().date() - timedelta(days=1)
+    yesterday = yesterday.strftime("%Y%m%d")
+    df_index = pro.index_dailybasic(trade_date=yesterday)
+    if not df_index.empty:
+        ts_code_list = df_index["ts_code"].tolist()
     file_basic_path = "C:\\quanttime\\data\\index\\tushare\\"
     logging.debug("==========================")
     logging.debug("开始更新tushare指数每日估值信息")
@@ -1038,11 +1046,12 @@ def get_index_weights_from_jq():
 
 if __name__ == "__main__":
     #get_tushare_index_basic_info()
-    update_jq_index()
+    #update_jq_index()
     #get_sw_index_daily_by_opendatatool()
     # maintenance_index_valuation()
     # get_index_weights_from_jq()
-    # get_tushare_index()
+    get_tushare_index()
+
     #tushare_index_PEPB_info()
     #tmp = get_close_trade_date("2019-01-03",1)
     #tmp = get_trade_list("2019-01-03","2019-12-27")
