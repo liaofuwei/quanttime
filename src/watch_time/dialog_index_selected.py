@@ -44,6 +44,9 @@ class IndexSelected(QtCore.QObject):
         # 将精选index存到csv的signal与slot连接
         self.ui.pushButton_4.clicked.connect(self.save_selected_index_2_csv)
 
+        # 分析sw的所有一二三级指数 signal与slot连接
+        self.ui.pushButton.clicked.connect(self.analyse_sw_index_invaluation)
+
     # =======================================
 
     def show_dialog(self):
@@ -200,28 +203,29 @@ class IndexSelected(QtCore.QObject):
                         continue
                     index_name = df['index_name'][0]
                     pb_min = df['pb'].min()
-                    pb_min_date = df['pb'].idxmin()
+                    pb_min_date = df['pb'].idxmin().date()
                     pb_quantile_5 = df['pb'].quantile(0.05)
                     pb_quantile_10 = df['pb'].quantile(0.10)
                     pb_mean = df['pb'].mean()
                     pb_max = df['pb'].max()
-                    pb_max_date = df['pb'].idxmax()
+                    pb_max_date = df['pb'].idxmax().date()
                     pb_std = df['pb'].std()
                     pb = df['pb'][-1]
-                    pb_tmp = [code, index_name, '--', pb, pb_min, pb_min_date, pb_quantile_5, pb_quantile_10, pb_mean,
+                    tmp_date = str(df.index[-1].date())
+                    pb_tmp = [code, index_name, tmp_date, pb, pb_min, pb_min_date, pb_quantile_5, pb_quantile_10, pb_mean,
                               pb_max, pb_max_date, pb_std]
                     pb_general_result.append(pb_tmp)
 
                     pe_min = df['pe'].min()
-                    pe_min_date = df['pe'].idxmin()
+                    pe_min_date = df['pe'].idxmin().date()
                     pe_quantile_5 = df['pe'].quantile(0.05)
                     pe_quantile_10 = df['pe'].quantile(0.10)
                     pe_mean = df['pe'].mean()
                     pe_max = df['pe'].max()
-                    pe_max_date = df['pe'].idxmax()
+                    pe_max_date = df['pe'].idxmax().date()
                     pe_std = df['pe'].std()
                     pe = df['pe'][-1]
-                    pe_tmp = [code, index_name, '--', pe, pe_min, pe_min_date, pe_quantile_5, pe_quantile_10, pe_mean,
+                    pe_tmp = [code, index_name, tmp_date, pe, pe_min, pe_min_date, pe_quantile_5, pe_quantile_10, pe_mean,
                               pe_max, pe_max_date, pe_std]
                     pe_general_result.append(pe_tmp)
         df_pb = pd.DataFrame(data=pb_general_result, columns=columns_name)
@@ -247,9 +251,11 @@ class IndexSelected(QtCore.QObject):
         :return: df
         '''
         index_list = ["000001.SH", "000300.SH", "000905.SH", "399001.SZ",
-                      "399005.SZ", "399006.SZ", "399016.SZ", "399300.SZ"]
+                      "399005.SZ", "399006.SZ", "399016.SZ", "399300.SZ",
+                      "000005.SH", "000006.SH", "000016.SH"]
         index_name = [u"上证指数", u"沪深300", u"中证500", u"深圳成指",
-                      u"中小板指数", u"创业板指数", u"深圳创新指数", u"沪深300"]
+                      u"中小板指数", u"创业板指数", u"深圳创新指数", u"沪深300",
+                      u"商业指数", u"地产指数", u"上证50"]
         basic_dir = 'C:\\quanttime\\data\\index\\tushare\\'
         pb_general_result = []
         pe_general_result = []
@@ -265,28 +271,29 @@ class IndexSelected(QtCore.QObject):
                 index_code = index_list[i].split('.')[0]
                 tmp_name = index_name[i]
                 pb_min = df['pb'].min()
-                pb_min_date = df['pb'].idxmin()
+                pb_min_date = df['pb'].idxmin().date()
                 pb_quantile_5 = df['pb'].quantile(0.05)
                 pb_quantile_10 = df['pb'].quantile(0.10)
                 pb_mean = df['pb'].mean()
                 pb_max = df['pb'].max()
-                pb_max_date = df['pb'].idxmax()
+                pb_max_date = df['pb'].idxmax().date()
                 pb_std = df['pb'].std()
                 pb = df['pb'][-1]
-                pb_tmp = [index_code, tmp_name, '--', pb, pb_min, pb_min_date, pb_quantile_5, pb_quantile_10, pb_mean,
+                tmp_date = str(df.index[-1].date())
+                pb_tmp = [index_code, tmp_name, tmp_date, pb, pb_min, pb_min_date, pb_quantile_5, pb_quantile_10, pb_mean,
                           pb_max, pb_max_date, pb_std]
                 pb_general_result.append(pb_tmp)
 
                 pe_min = df['pe'].min()
-                pe_min_date = df['pe'].idxmin()
+                pe_min_date = df['pe'].idxmin().date()
                 pe_quantile_5 = df['pe'].quantile(0.05)
                 pe_quantile_10 = df['pe'].quantile(0.10)
                 pe_mean = df['pe'].mean()
                 pe_max = df['pe'].max()
-                pe_max_date = df['pe'].idxmax()
+                pe_max_date = df['pe'].idxmax().date()
                 pe_std = df['pe'].std()
                 pe = df['pe'][-1]
-                pe_tmp = [index_code, tmp_name, '--', pe, pe_min, pe_min_date, pe_quantile_5, pe_quantile_10, pe_mean,
+                pe_tmp = [index_code, tmp_name, tmp_date, pe, pe_min, pe_min_date, pe_quantile_5, pe_quantile_10, pe_mean,
                           pe_max, pe_max_date, pe_std]
                 pe_general_result.append(pe_tmp)
         df_pb = pd.DataFrame(data=pb_general_result, columns=columns_name)
@@ -298,6 +305,175 @@ class IndexSelected(QtCore.QObject):
         df_pe[columns_2decimals] = df_pe[columns_2decimals].round(decimals=2)
         return df_pb, df_pe
 
+    # ==================================
+    def analyse_sw_index_invaluation(self):
+        '''
+        分析所有的申万一级二级三级指数
+        分析结果通过signal_select_index发射到主界面
+        :return:
+        '''
+        sw_index_info_dir = r'C:\quanttime\data\index\basic_index_info\basic_index_info_sw.csv'
+        df_sw_index_info = pd.read_csv(sw_index_info_dir, encoding="gbk", usecols=["ts_code", "category"],
+                                       index_col=["ts_code"])
+        # 选出指数中一，二，三级指数进行分析
+        tmp1 = df_sw_index_info[df_sw_index_info["category"] == u"一级行业指数"]
+        tmp2 = df_sw_index_info[df_sw_index_info["category"] == u"二级行业指数"]
+        tmp3 = df_sw_index_info[df_sw_index_info["category"] == u"三级行业指数"]
+        df_sw_index_info = pd.concat([tmp1, tmp2, tmp3])
+        sw_valuation_dir = 'C:\\quanttime\\data\\index\\sw\\valuation\\'
+        pb_general_result = []
+        pe_general_result = []
+        columns_name = ['code', 'name', 'close', 'pb', 'min', 'min_date', '5%', '10%', 'mean', 'max', 'max_date', 'std']
+        columns_name1 = ['code', 'name', 'close', 'pe', 'min', 'min_date', '5%', '10%', 'mean', 'max', 'max_date',
+                         'std']
+        for index_code in df_sw_index_info.index:
+            valuation_file = sw_valuation_dir + index_code[0:6] + '.csv'
+            if not os.path.exists(valuation_file):
+                print("sw code:%s 不存在对应的valuation文件" % index_code)
+                continue
+            df = pd.read_csv(valuation_file, index_col=["date"], parse_dates=True,
+                             usecols=['date', 'close', 'index_name', 'pb', 'pe'], encoding="gbk")
+            if df.empty:
+                continue
+            index_name = df['index_name'][0]
+            pb_min = df['pb'].min()
+            pb_min_date = df['pb'].idxmin()
+            pb_quantile_5 = df['pb'].quantile(0.05)
+            pb_quantile_10 = df['pb'].quantile(0.10)
+            pb_mean = df['pb'].mean()
+            pb_max = df['pb'].max()
+            pb_max_date = df['pb'].idxmax()
+            pb_std = df['pb'].std()
+            pb = df['pb'][-1]
+            tmp_date = str(df.index[-1].date())
+            pb_tmp = [index_code, index_name, tmp_date, pb, pb_min, pb_min_date, pb_quantile_5, pb_quantile_10, pb_mean,
+                      pb_max, pb_max_date, pb_std]
+            pb_general_result.append(pb_tmp)
+
+            pe_min = df['pe'].min()
+            pe_min_date = df['pe'].idxmin().date()
+            pe_quantile_5 = df['pe'].quantile(0.05)
+            pe_quantile_10 = df['pe'].quantile(0.10)
+            pe_mean = df['pe'].mean()
+            pe_max = df['pe'].max()
+            pe_max_date = df['pe'].idxmax().date()
+            pe_std = df['pe'].std()
+            pe = df['pe'][-1]
+            pe_tmp = [index_code, index_name, tmp_date, pe, pe_min, pe_min_date, pe_quantile_5, pe_quantile_10, pe_mean,
+                      pe_max, pe_max_date, pe_std]
+            pe_general_result.append(pe_tmp)
+        df_pb = pd.DataFrame(data=pb_general_result, columns=columns_name)
+        df_pe = pd.DataFrame(data=pe_general_result, columns=columns_name1)
+        # 小数只保留两位
+        columns_2decimals = ["pb", "min", "max", "mean", "std", "5%", "10%"]
+        df_pb[columns_2decimals] = df_pb[columns_2decimals].round(decimals=2)
+        columns_2decimals = ["pe", "min", "max", "mean", "std", "5%", "10%"]
+        df_pe[columns_2decimals] = df_pe[columns_2decimals].round(decimals=2)
+        print(df_pb.head(2))
+        print(df_pe.head(2))
+        self.signal_select_index.emit(df_pb, df_pe)
+
+    # ==================================
+    def analyse_sw_index_invaluation_by_period(self, period):
+        '''
+        计算申万指数估值的历史分位数
+        通过period 增加时段选择
+        period：
+        0--代表分析所有时段
+        1--代表只分析5年
+        2--代表分析从2010年开始
+        3--代表分析从2011年开始
+        :param period:主页面signal值
+        :return:
+        '''
+        print("analyse_sw_index_invaluation_by_period")
+        if period == 0:
+            self.analyse_sw_index_invaluation()
+        elif period == 1:
+            df_pb, df_pe = self.calc_sw_index_invaluation_by_period(datetime.today().year - 5)
+            if isinstance(df_pe, pd.DataFrame) and isinstance(df_pb, pd.DataFrame):
+                self.signal_select_index.emit(df_pb, df_pe)
+        elif period == 2:
+            df_pb, df_pe = self.calc_sw_index_invaluation_by_period(2010)
+            if isinstance(df_pe, pd.DataFrame) and isinstance(df_pb, pd.DataFrame):
+                self.signal_select_index.emit(df_pb, df_pe)
+        elif period == 3:
+            df_pb, df_pe = self.calc_sw_index_invaluation_by_period(2011)
+            if isinstance(df_pe, pd.DataFrame) and isinstance(df_pb, pd.DataFrame):
+                self.signal_select_index.emit(df_pb, df_pe)
+
+    # ====================================
+    def calc_sw_index_invaluation_by_period(self, nyears):
+        '''
+        计算从当前日期算的n年申万指数估值历史分位
+        :param nyears: 从哪一年开始计算，例如计算2016开始的估值
+        :return:(df,df)
+        '''
+        if nyears < 0:
+            return 0, 0
+
+        pre_date = datetime(nyears, datetime.today().month, datetime.today().day).date()
+
+        sw_index_info_dir = r'C:\quanttime\data\index\basic_index_info\basic_index_info_sw.csv'
+        df_sw_index_info = pd.read_csv(sw_index_info_dir, encoding="gbk", usecols=["ts_code", "category"],
+                                       index_col=["ts_code"])
+        # 选出指数中一，二，三级指数进行分析
+        tmp1 = df_sw_index_info[df_sw_index_info["category"] == u"一级行业指数"]
+        tmp2 = df_sw_index_info[df_sw_index_info["category"] == u"二级行业指数"]
+        tmp3 = df_sw_index_info[df_sw_index_info["category"] == u"三级行业指数"]
+        df_sw_index_info = pd.concat([tmp1, tmp2, tmp3])
+        sw_valuation_dir = 'C:\\quanttime\\data\\index\\sw\\valuation\\'
+        pb_general_result = []
+        pe_general_result = []
+        columns_name = ['code', 'name', 'close', 'pb', 'min', 'min_date', '5%', '10%', 'mean', 'max', 'max_date', 'std']
+        columns_name1 = ['code', 'name', 'close', 'pe', 'min', 'min_date', '5%', '10%', 'mean', 'max', 'max_date',
+                         'std']
+        for index_code in df_sw_index_info.index:
+            valuation_file = sw_valuation_dir + index_code[0:6] + '.csv'
+            if not os.path.exists(valuation_file):
+                print("sw code:%s 不存在对应的valuation文件" % index_code)
+                continue
+            df = pd.read_csv(valuation_file, index_col=["date"], parse_dates=True,
+                             usecols=['date', 'close', 'index_name', 'pb', 'pe'], encoding="gbk")
+            if df.empty:
+                continue
+            period_index_start = [d for d in df.index if d.date() >= pre_date][0]
+
+            index_name = df['index_name'][0]
+            pb_min = df.loc[period_index_start:, ['pb']]['pb'].min()
+            pb_min_date = df.loc[period_index_start:, ['pb']]['pb'].idxmin()
+            pb_quantile_5 = df.loc[period_index_start:, ['pb']]['pb'].quantile(0.05)
+            pb_quantile_10 = df.loc[period_index_start:, ['pb']]['pb'].quantile(0.10)
+            pb_mean = df.loc[period_index_start:, ['pb']]['pb'].mean()
+            pb_max = df.loc[period_index_start:, ['pb']]['pb'].max()
+            pb_max_date = df.loc[period_index_start:, ['pb']]['pb'].idxmax()
+            pb_std = df.loc[period_index_start:, ['pb']]['pb'].std()
+            pb = df.loc[period_index_start:, ['pb']]['pb'][-1]
+            tmp_date = str(df.index[-1].date())
+            pb_tmp = [index_code, index_name, tmp_date, pb, pb_min, pb_min_date, pb_quantile_5, pb_quantile_10, pb_mean,
+                      pb_max, pb_max_date, pb_std]
+            pb_general_result.append(pb_tmp)
+
+            pe_min = df.loc[period_index_start:, ['pe']]['pe'].min()
+            pe_min_date = df.loc[period_index_start:, ['pe']]['pe'].idxmin()
+            pe_quantile_5 = df.loc[period_index_start:, ['pe']]['pe'].quantile(0.05)
+            pe_quantile_10 = df.loc[period_index_start:, ['pe']]['pe'].quantile(0.10)
+            pe_mean = df.loc[period_index_start:, ['pe']]['pe'].mean()
+            pe_max = df.loc[period_index_start:, ['pe']]['pe'].max()
+            pe_max_date = df.loc[period_index_start:, ['pe']]['pe'].idxmax()
+            pe_std = df.loc[period_index_start:, ['pe']]['pe'].std()
+            pe = df.loc[period_index_start:, ['pe']]['pe'][-1]
+            pe_tmp = [index_code, index_name, tmp_date, pe, pe_min, pe_min_date, pe_quantile_5, pe_quantile_10, pe_mean,
+                      pe_max, pe_max_date, pe_std]
+            pe_general_result.append(pe_tmp)
+        df_pb = pd.DataFrame(data=pb_general_result, columns=columns_name)
+        df_pe = pd.DataFrame(data=pe_general_result, columns=columns_name1)
+        # 小数只保留两位
+        columns_2decimals = ["pb", "min", "max", "mean", "std", "5%", "10%"]
+        df_pb[columns_2decimals] = df_pb[columns_2decimals].round(decimals=2)
+        columns_2decimals = ["pe", "min", "max", "mean", "std", "5%", "10%"]
+        df_pe[columns_2decimals] = df_pe[columns_2decimals].round(decimals=2)
+        return df_pb, df_pe
     # ==================================
 
     def get_sw_weight(self, code):
