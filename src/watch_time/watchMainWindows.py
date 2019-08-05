@@ -12,6 +12,7 @@ import pysnooper
 from bank import BankThread
 from security import SecurityThread
 from gold import ProcessAUAGThread
+from hunt_dog import HuntDogThread
 from datetime import datetime
 from dialog_index_selected import IndexSelected
 from opendatatools import swindex
@@ -28,6 +29,8 @@ class WatchMainWindows(QtCore.QObject):
     security_out = QtCore.pyqtSignal(int)
     # 计算金银比需要的设置参数signal
     agau_stat_info_out = QtCore.pyqtSignal(list)
+    # 指数估值分析，选择时间段
+    index_valuation_period_out = QtCore.pyqtSignal(int)
 
     def __init__(self, parent=None):
         super(WatchMainWindows, self).__init__(parent)
@@ -97,6 +100,20 @@ class WatchMainWindows(QtCore.QObject):
         self.ui.tableWidget_4.cellDoubleClicked.connect(self.get_display_weight)
         self.ui.pushButton_7.clicked.connect(index_select_dialog.index_rotation)
         index_select_dialog.signal_rotation_result.connect(self.display_ratation_table)
+        # 增加指数估值分位数分析的时间段选择
+        self.ui.pushButton_8.clicked.connect(self.analyse_index_by_period)
+        self.index_valuation_period_out.connect(index_select_dialog.analyse_sw_index_invaluation_by_period)
+
+        # 监控票的处理
+        # 设置默认的前海鹏华告警阈值
+        self.ui.lineEdit_8.setText("-0.3")
+        # 监控线程的sleep时间设置
+        hunt_dog_thread = HuntDogThread()
+        self.ui.comboBox.currentTextChanged.connect(hunt_dog_thread.set_sleep_time)
+        hunt_dog_thread.REIT_Penghua_quotation.connect(self.display_REIT_Penghua)
+        self.ui.checkBox_9.stateChanged.connect(hunt_dog_thread.auto_run)
+        self.ui.checkBox_10.stateChanged.connect(hunt_dog_thread.stop)
+        self.ui.pushButton_9.clicked.connect(hunt_dog_thread.process_by_hand)
 
         main_window.show()
         sys.exit(app.exec_())
@@ -387,6 +404,14 @@ class WatchMainWindows(QtCore.QObject):
             print("精选指数为空")
             return
 
+        '''
+        item = QtWidgets.QTableWidgetItem()
+        brush = QtGui.QBrush(QtGui.QColor(170, 0, 0))
+        brush.setStyle(QtCore.Qt.NoBrush)
+        item.setForeground(brush)
+        self.tableWidget_4.setItem(0, 0, item)
+        '''
+
         # 清除pb表
         self.ui.tableWidget_4.clearContents()
         self.ui.tableWidget_4.setRowCount(len(df_pb))
@@ -394,6 +419,16 @@ class WatchMainWindows(QtCore.QObject):
             for column in range(len(df_pb.columns)):
                 item = QtWidgets.QTableWidgetItem(str(df_pb.iloc[i, column]))
                 self.ui.tableWidget_4.setItem(i, column, item)
+            curr_pb = float(self.ui.tableWidget_4.item(i, 3).text())
+            pb_5 = float(self.ui.tableWidget_4.item(i, 6).text())
+            if curr_pb <= pb_5:
+                item = QtWidgets.QTableWidgetItem()
+                brush = QtGui.QBrush(QtGui.QColor(170, 0, 0))
+                brush.setStyle(QtCore.Qt.NoBrush)
+                item.setForeground(brush)
+                item.setText(str(self.ui.tableWidget_4.item(i, 3).text()))
+                self.ui.tableWidget_4.setItem(i, 3, item)
+
 
         # 清除pe表
         self.ui.tableWidget_5.clearContents()
@@ -488,6 +523,58 @@ class WatchMainWindows(QtCore.QObject):
                 self.ui.tableWidget_11.setItem(1, 1, item)
                 item = QtWidgets.QTableWidgetItem(str(result[3]))
                 self.ui.tableWidget_11.setItem(1, 2, item)
+
+    # ========================================
+    def analyse_index_by_period(self):
+        '''
+            根据checkstatus的选择，设置不同的分析时段
+            当前可选的时段为：只分析5年，从2010年开始分析，2011年开始（创业板开始于2010年10月）
+            0--代表分析所有时段
+            1--代表只分析5年
+            2--代表分析从2010年开始
+            3--代表分析从2011年开始
+            :return: wu
+        '''
+        # 代表只分析最近5年
+        check_status5 = self.ui.checkBox_2.checkState()
+        # 分析从2010年开始
+        check_status10 = self.ui.checkBox_6.checkState()
+        # 分析从2011年开始
+        check_status11 = self.ui.checkBox_8.checkState()
+
+        if check_status5 == QtCore.Qt.Checked:
+            self.index_valuation_period_out.emit(1)
+        elif check_status10 == QtCore.Qt.Checked:
+            self.index_valuation_period_out.emit(2)
+        elif check_status11 == QtCore.Qt.Checked:
+            self.index_valuation_period_out.emit(3)
+        else:
+            self.index_valuation_period_out.emit(0)
+
+    # ===========================================
+    def display_REIT_Penghua(self, list_info):
+        '''
+        显示监控线程发过来的鹏华前海的信息，并判断是否到了阈值
+        list_info为发射过来的信号，list，[code,name,ask1,net_value,premium]的顺序
+        :return:
+        '''
+        print("display_penghua")
+        print(list_info)
+        alarm_limit = float(self.ui.lineEdit_8.text())
+        if len(list_info) != 5:
+            return
+        self.ui.tableWidget_13.setRowCount(1)
+        for i, j in enumerate(list_info):
+            if isinstance(j, float):
+                j = round(j, 2)
+            item = QtWidgets.QTableWidgetItem(str(j))
+            self.ui.tableWidget_13.setItem(0, i, item)
+        if list_info[4] <= alarm_limit:
+            qmessagebox = QtWidgets.QMessageBox()
+            qmessagebox.setText("价格提醒")
+            qmessagebox.setInformativeText("184801鹏华前海REIT到达买入价格！")
+            qmessagebox.exec()
+            # qmessagebox.information("Information", "184801鹏华前海REIT到达买入价格！")
 
 
 if __name__ == "__main__":
