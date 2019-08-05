@@ -144,6 +144,52 @@ def get_quote_by_tdx(code_list):
 # ====================================
 
 
+def get_quote_by_tdx2(code_list, isbTDX):
+    '''
+    使用通达信接口获取股票实时行情
+    该方法带有市场信息，主要是对于一些ETF或者lof行情，不能用0开头还是6开头来判断是上海市场还是深圳市场
+    :param code_list: 股票代码list,带市场信息
+    :param isbTDX:true,带有通达信标准获取信息行情的内容
+    :return: df
+    '''
+    if not isbTDX:
+        return pd.DataFrame()
+
+    api = TdxHq_API()
+    with api.connect('119.147.212.81', 7709):
+        data = api.to_df(api.get_security_quotes(code_list))
+        if data.empty:
+            return pd.DataFrame()
+        data = data[stock_tdx_columns]
+        return data
+# =============================================
+
+
+def get_finance_by_tdx(market, code):
+    '''
+    通过通达信获取股票的finance信息
+    参数：市场代码， 股票代码， 如： 0,000001 或 1,600300
+    :param market:市场码
+    :param code: tuple（市场代码，股票代码的元组）（因为可能涉及非标准的股票代码如lof等，所有在进行封装
+    :return:
+    有序字典
+    ['market', 'code', 'liutongguben', 'province', 'industry', 'updated_date', 'ipo_date', 'zongguben', 'guojiagu',
+    'faqirenfarengu', 'farengu', 'bgu', 'hgu', 'zhigonggu', 'zongzichan', 'liudongzichan', 'gudingzichan',
+    'wuxingzichan', 'gudongrenshu', 'liudongfuzhai', 'changqifuzhai', 'zibengongjijin', 'jingzichan', 'zhuyingshouru',
+     'zhuyinglirun', 'yingshouzhangkuan', 'yingyelirun', 'touzishouyu', 'jingyingxianjinliu', 'zongxianjinliu',
+     'cunhuo', 'lirunzonghe', 'shuihoulirun', 'jinglirun', 'weifenpeilirun', 'meigujingzichan', 'baoliu2']
+
+     返回是一个有序字典，可以dic["key"]来获取
+     如return为data
+     data['meigujingzichan']
+    '''
+    api = TdxHq_API()
+    with api.connect('119.147.212.81', 7709):
+        data = api.get_finance_info(market, code)
+        return data
+# =================================================
+
+
 def get_quote_by_ts(code_list):
     '''
     使用tushare接口获取股票实时行情
