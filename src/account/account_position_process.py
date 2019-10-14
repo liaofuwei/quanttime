@@ -29,6 +29,9 @@ date_ranges = date_ranges + add_date_ranges
 df_ht = pd.DataFrame()
 # 对原始的交易记录只分析关键列
 ht_columns_name = ["trade_date", "code", "name", "operation", "amount", "price", "total_money"]
+# 排除一些逆回购，理财之类的持仓
+exclude_code_list = ['204001', '131810', '204007', '940247', '940037', '003474', '940018', '204004', '000662',
+                     '131811', '204003', '132073', 'SHC827']
 for account in ["ht48-", "ht49-"]:
     select_stock_path = write_dir + account + '.csv'
     # 先清除csv里的内容
@@ -40,22 +43,17 @@ for account in ["ht48-", "ht49-"]:
             ht_cici = pd.read_csv(file_path, encoding="gbk", usecols=[0, 2, 3, 4, 5, 6, 7], header=0,
                                   names=ht_columns_name, parse_dates=['trade_date'])
             df_ht = pd.concat([df_ht, ht_cici])
-    position_stock = pd.unique(df_ht["name"])
-    for stock_name in position_stock:
-        if stock_name is np.nan:
+    df_ht["code"] = df_ht["code"].map(str)
+    df_ht["code"] = df_ht["code"].map(lambda x: x.zfill(6))
+    position_stock = pd.unique(df_ht["code"])
+    for stock_code in position_stock:
+        if stock_code in exclude_code_list:
             continue
-        if '配号' in stock_name or '惠理财' in stock_name:
+        df_select = df_ht[df_ht["code"] == stock_code]
+        if df_select.empty:
             continue
-        if ('GC' in stock_name) or ('Ｒ' in stock_name) or ('月月' in stock_name) or ('南方' in stock_name) or (
-                '天天' in stock_name):
+        if (len(df_select) == 1) and (df_select.iloc[0, 3] == '申购配号'):
             continue
-        if '紫金' in stock_name or '银华' in stock_name:
-            continue
-
-        df_select = df_ht[df_ht["name"] == stock_name]
-        if len(df_select) == 1:
-            if df_select.iloc[0, 3] == '申购配号':
-                continue
 
         df_select.to_csv(select_stock_path, mode='a', index=False, encoding="gbk")
         df_buy_vol = df_select[df_select["operation"] == '证券买入']
@@ -64,6 +62,11 @@ for account in ["ht48-", "ht49-"]:
             # 说明已经清仓,计算盈亏数额
             result = sum(df_select['price'] * df_select["amount"])
             data = [["盈亏总额：", -result]]
+            df_result = pd.DataFrame(data=data, columns=['A', 'B'])
+            df_result.to_csv(select_stock_path, mode='a', encoding="gbk", index=False, header=None)
+        else:
+            position_amount = sum(df_buy_vol["amount"]) + sum(df_sell_vol["amount"])
+            data = [["当前持仓总量：", position_amount]]
             df_result = pd.DataFrame(data=data, columns=['A', 'B'])
             df_result.to_csv(select_stock_path, mode='a', encoding="gbk", index=False, header=None)
         df_tmp.to_csv(select_stock_path, mode='a')
