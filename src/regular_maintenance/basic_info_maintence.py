@@ -3,7 +3,6 @@ __author__ = 'Administrator'
 
 from jqdatasdk import *
 import pandas as pd
-import logging
 
 import os
 
@@ -12,13 +11,15 @@ import tushare as ts
 import pymongo
 
 '''
+程序已检视20191223 ，有效
+当前交易日信息也更新至2020-12-31
+
 本程序主要维护基本信息，如stock 基本信息，bond基本信息等
 主要包括：
-1、standerConvertBondBasicInfo,从集思录的网页拷贝信息，后，与joinquant的基本stock信息合成一张及转债与对应正股的信息表
-2、
-3、
-4、
-5、
+1、def：get_basic_info_table 更新股票基本信息表，该表从tushare和joinquant分别获取，不定期更新
+2、def：get_all_trade_day() 获取所有交易日信息，该表也是从tushare与joinquant分别获取，当前更新至2020-12-31
+
+
 '''
 
 # jqdata 授权
@@ -39,13 +40,13 @@ all_db_names = mongo_client.list_database_names()
 
 
 def get_basic_info_table():
-    '''
+    """
     获取股票的基本信息表
     1、是joinquant的基本信息表，存储的文件名及路径为：C:\\quanttime\\data\\basic_info\\all_stock_info.csv
     2、tushare的基本信息表，存储的文件名及路径为：C:\\quanttime\\data\\basic_info\\all_stock_info_ts.csv
     同时存入mongodb利于查询使用
     :return:
-    '''
+    """
     if os.path.exists(stock_basic_info_dir):
         stock_info_basic = pd.read_csv(
             stock_basic_info_dir,
@@ -147,25 +148,27 @@ def get_basic_info_table():
 
 # ===============================================================
 # =============获取交易日信息===================
-def getAllTradeDay():
-    '''
+
+
+def get_all_trade_day():
+    """
     功能：获取所有的交易日信息，写入到C:\quanttime\data\basic_info文件夹内,数据量很小，不做增量更新，每次获取全部，覆盖重写
     文件名称：allTradeDay.csv
     :return:
-    '''
+    """
     files_path = "C:\\quanttime\\data\\basic_info\\all_trade_day.csv"
     all_trade_day = get_all_trade_days()
     data = pd.DataFrame(data=all_trade_day, columns=["trade_date"])
     data.to_csv(files_path)
-    basic_info_db = mongo_client["basic_info_db"]
-    trade_date = basic_info_db["all_trade_day"]
-    trade_date.drop()
-    trade_date.insert_many(data.to_dict(orient="record"))
+    # basic_info_db = mongo_client["basic_info_db"]
+    # trade_date = basic_info_db["all_trade_day"]
+    # trade_date.drop()
+    # trade_date.insert_many(data.to_dict(orient="record"))
     print("update joinquant all_trade_day file end!")
     # ================
     # 从tushare获取
     files_path = "C:\\quanttime\\data\\basic_info\\all_trade_day_ts.csv"
-    ts_date = pro.query('trade_cal', start_date='20050104', end_date='20191231')
+    ts_date = pro.query('trade_cal', start_date='20050104', end_date='20201231')
     '''
     返回字段：
     exchange：交易所，默认上交所
@@ -181,94 +184,7 @@ def getAllTradeDay():
     print("update tushare all_trade_day file end!")
 
 
-def delConvertPriceStar(star):
-    '''
-    功能：从集思录copy的转债信息表csv，转换价格在出现下调或者下调公告后会标记*，该函数主要作用是去掉*
-    :return:
-
-    '''
-    convert_price = str(star)
-    nums = convert_price.split("*")
-    return nums[0]
-
-
-def standerConvertBondBasicInfo():
-    '''
-    功能：从集思录copy的转债信息表csv，当中很多信息无用，使用该函数将有用信息标准化后存储
-    :return:
-    '''
-    convert_bond_raw = "C:\\quanttime\\data\\basic_info\\convert_bond_basic_info_raw.csv"
-    stock_info_basic = pd.read_csv(
-        stock_basic_info_dir,
-        index_col=["display_name"],
-        encoding="gbk")
-    # 集思录的原始colums信息命名，其中名称中带——x表示改行信息完全无用，只是用来标记不同的名称
-    jisilu_column_name = [
-        "bond_code",
-        "bond_name",
-        "bond_price",
-        "bond_x1",
-        "stock_name",
-        "stock_price",
-        "stock_x1",
-        "pb",
-        "convert_price",
-        "convert_value",
-        "premium",
-        "bond_value",
-        "band",
-        "option_value",
-        "shuishou_price",
-        "qiangshu_price",
-        "bond_x2",
-        "bond_x3",
-        "expire",
-        "year_to_end",
-        "return",
-        "shuishou_ret",
-        "amount",
-        "operation"]
-    convert_bond_basic_info_raw = pd.read_csv(
-        convert_bond_raw,
-        encoding="gbk",
-        names=jisilu_column_name,
-        index_col=False)
-    convert_bond_basic_info_raw = convert_bond_basic_info_raw.set_index(
-        "stock_name")
-    convert_bond_basic_info_raw["convert_price"] = convert_bond_basic_info_raw["convert_price"].map(
-        delConvertPriceStar)
-    convert_bond_basic_info = pd.merge(
-        convert_bond_basic_info_raw,
-        stock_info_basic,
-        left_index=True,
-        right_index=True,
-        suffixes=[
-            '_bond',
-            '_stock'])
-    convert_bond_basic_info = convert_bond_basic_info.rename(
-        columns={"code": "stock_code"})
-    save_columns = [
-        "bond_code",
-        "stock_code",
-        "bond_name",
-        "convert_price",
-        "pb",
-        "shuishou_price",
-        "qiangshu_price",
-        "expire",
-        "year_to_end"]
-    convert_bond_basic_info.to_csv(
-        convert_bond_basic_info_dir,
-        columns=save_columns,
-        encoding="gbk",
-        index_label="stock_name")
-    print("standerConvertBondBasicInfo end!")
-
-
-
-
-
 if __name__ == "__main__":
     # standerConvertBondBasicInfo()
-    # getAllTradeDay()
-    get_basic_info_table()
+    get_all_trade_day()
+    # get_basic_info_table()
