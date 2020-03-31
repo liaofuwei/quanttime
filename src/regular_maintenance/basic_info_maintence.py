@@ -6,12 +6,12 @@ import pandas as pd
 
 import os
 
-from datetime import timedelta, date, datetime
+from datetime import datetime
 import tushare as ts
 import pymongo
 
 '''
-程序已检视20191223 ，有效
+程序已检视20200331 ，有效
 当前交易日信息也更新至2020-12-31
 
 本程序主要维护基本信息，如stock 基本信息，bond基本信息等
@@ -30,10 +30,14 @@ ts.set_token(token)
 # ts 授权
 pro = ts.pro_api()
 
+
+disk_name = os.getcwd()[0]
+basic_path = disk_name + ":\\quanttime\\data\\basic_info\\"
+
 # 维护的文件目录
-stock_basic_info_dir = "C:\\quanttime\\data\\basic_info\\all_stock_info.csv"
-stock_basic_info_ts_dir = "C:\\quanttime\\data\\basic_info\\all_stock_info_ts.csv"
-convert_bond_basic_info_dir = "C:\\quanttime\\data\\basic_info\\convert_bond_basic_info.csv"
+stock_basic_info_dir = basic_path + "all_stock_info.csv"
+stock_basic_info_ts_dir = basic_path + "all_stock_info_ts.csv"
+convert_bond_basic_info_dir = basic_path + "convert_bond_basic_info.csv"
 
 mongo_client = pymongo.MongoClient('mongodb://localhost:27017/')
 all_db_names = mongo_client.list_database_names()
@@ -42,8 +46,8 @@ all_db_names = mongo_client.list_database_names()
 def get_basic_info_table():
     """
     获取股票的基本信息表
-    1、是joinquant的基本信息表，存储的文件名及路径为：C:\\quanttime\\data\\basic_info\\all_stock_info.csv
-    2、tushare的基本信息表，存储的文件名及路径为：C:\\quanttime\\data\\basic_info\\all_stock_info_ts.csv
+    1、是joinquant的基本信息表，存储的文件名及路径为：\\quanttime\\data\\basic_info\\all_stock_info.csv
+    2、tushare的基本信息表，存储的文件名及路径为：\\quanttime\\data\\basic_info\\all_stock_info_ts.csv
     同时存入mongodb利于查询使用
     :return:
     """
@@ -156,7 +160,7 @@ def get_all_trade_day():
     文件名称：allTradeDay.csv
     :return:
     """
-    files_path = "C:\\quanttime\\data\\basic_info\\all_trade_day.csv"
+    files_path = basic_path + "all_trade_day.csv"
     all_trade_day = get_all_trade_days()
     data = pd.DataFrame(data=all_trade_day, columns=["trade_date"])
     data.to_csv(files_path)
@@ -167,8 +171,9 @@ def get_all_trade_day():
     print("update joinquant all_trade_day file end!")
     # ================
     # 从tushare获取
-    files_path = "C:\\quanttime\\data\\basic_info\\all_trade_day_ts.csv"
-    ts_date = pro.query('trade_cal', start_date='20050104', end_date='20201231')
+    files_path = basic_path + "all_trade_day_ts.csv"
+    curr_year = str(datetime.today().year)
+    ts_date = pro.query('trade_cal', start_date='20050104', end_date=curr_year + '1231')
     '''
     返回字段：
     exchange：交易所，默认上交所
@@ -187,4 +192,4 @@ def get_all_trade_day():
 if __name__ == "__main__":
     # standerConvertBondBasicInfo()
     get_all_trade_day()
-    # get_basic_info_table()
+    get_basic_info_table()
