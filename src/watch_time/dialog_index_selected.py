@@ -484,15 +484,15 @@ class IndexSelected(QtCore.QObject):
         '''
         df, msg = swindex.get_index_cons(code)
 
-
     # =========================================
     def index_rotation(self):
-        '''
+        """
         实数轮动分析
         历史k线数据读取至C:\quanttime\data\index\jq  .XSHG
         实时行情获取指数当前点位来之与tdx
         :return:
-        '''
+        """
+
         index_compare = [["399300", "399905"], ["399300", "399673"], ["399300", "399006"]]
         index_name = {
             "399300": "沪深300",

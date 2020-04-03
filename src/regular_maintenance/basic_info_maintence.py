@@ -19,6 +19,7 @@ import pymongo
 1、def：get_basic_info_table 更新股票基本信息表，该表从tushare和joinquant分别获取，不定期更新
 2、def：get_all_trade_day() 获取所有交易日信息，该表也是从tushare与joinquant分别获取，当前更新至2020-12-31
 
+数据存储目录：quanttime\data\\basic_info目录下
 
 '''
 

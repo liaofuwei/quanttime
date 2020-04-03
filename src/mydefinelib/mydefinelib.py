@@ -199,8 +199,8 @@ def get_trade_date_by_year_month(nYear, nMonth):
 
 if __name__ == "__main__":
     #print(get_appoint_trade_date("2019-12-25",-3))
-    print(get_trade_date_by_year_month(2018, 2))
+    # print(get_trade_date_by_year_month(2018, 2))
     # print(get_trade_list("20190415","2019-04-19"))
-    # ret = get_close_trade_date("2018-10-01", 1)
-    #print(ret)
+    ret = get_close_trade_date("2018-07-01", 1)
+    print(ret)
 

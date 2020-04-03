@@ -1050,7 +1050,7 @@ if __name__ == "__main__":
     #get_sw_index_daily_by_opendatatool()
     # maintenance_index_valuation()
     # get_index_weights_from_jq()
-    get_tushare_index()
+    # get_tushare_index()
 
     #tushare_index_PEPB_info()
     #tmp = get_close_trade_date("2019-01-03",1)
@@ -1058,3 +1058,4 @@ if __name__ == "__main__":
     # print(tmp)
     # calc_index_valuation(["399673.XSHE"])
     # update_index_valuation(["399673.XSHE"])
+    update_sw_index_valuation_by_opendatatool()

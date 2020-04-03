@@ -170,24 +170,20 @@ def sh_future_gold_silver_mins_data():
 
     if b_silver_dir_exist:
         silver_hisdata = pd.read_csv(silver_dir, index_col=["datetime"])
-        try:
-            d1 = datetime.strptime(silver_hisdata.index[len(silver_hisdata.index) - 1], '%Y-%m-%d %H:%M')
-        except ValueError:
-            d1 = datetime.strptime(silver_hisdata.index[len(silver_hisdata.index) - 1], '%Y/%m/%d %H:%M')
-        try:
-            d2 = datetime.strptime(silver_hisdata.index[0], '%Y-%m-%d %H:%M')
-        except ValueError:
-            d2 = datetime.strptime(silver_hisdata.index[0], '%Y/%m/%d %H:%M')
+        silver_hisdata.index = pd.to_datetime(silver_hisdata.index)
+
+        d1 = silver_hisdata.index[-1]
+        d2 = silver_hisdata.index[0]
 
         delta = d1 - d2
         delta2 = timedelta(days=1)  # 读取的最后日期往后推一天，作为更新的起始日期
         # 判断存储在csv中的日期是顺序还是逆序
         if delta.days > 0:
             d1 = d1 + delta2
-            start_time = d1.strftime('%Y-%m-%d') + " 09:00:00"
+            start_time = d1.date().strftime('%Y-%m-%d') + " 09:00:00"
         else:
             d2 = d2 + delta2
-            start_time = d2.strftime('%Y-%m-%d') + " 09:00:00"
+            start_time = d2.date().strftime('%Y-%m-%d') + " 09:00:00"
 
         silver_hisdata = get_price('AG9999.XSGE', start_date=start_time, end_date=end_time, frequency='1m')
         silver_hisdata.index.name = "datetime"

@@ -14,6 +14,7 @@ import time
 1、获取AH的比价信息（目前直接采用joinquant的数据）
 2、存储文件目录：C:\quanttime\data\AH_ratio
 3、在存储文件目录存放AH的code，包含A、H的code信息，该表来至于集思录
+更新周期不长于1个月（当前更新一次最多取30条）
 '''
 
 #授权
@@ -49,19 +50,19 @@ def get_AH_ratio():
     columns_name = ["name", "a_code", "h_code", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"]
     df_ah_code = pd.read_csv(ah_info, encoding="gbk", header=None, names=columns_name)
     df_ah_code["a_code"] = df_ah_code["a_code"].map(stander_code)
-    print(df_ah_code)
+    # print(df_ah_code)
     a_code_list = df_ah_code["a_code"].tolist()
     a_code_list = normalize_code(a_code_list)
-    print(a_code_list)
+    # print(a_code_list)
     for code in a_code_list:
         file_path = file_basic_path + code + '.csv'
         if os.path.exists(file_path):
             df_data = pd.read_csv(file_path, index_col=["day"], parse_dates=True, encoding="gbk")
             data_last_update = df_data.index[-1].date().strftime("%Y-%m-%d")
-            # 最多取100条，更新周期不大于1个月
+            # 最多取30条，更新周期不大于1个月
             q = query(finance.STK_AH_PRICE_COMP).filter(finance.STK_AH_PRICE_COMP.a_code == code,
                                                         finance.STK_AH_PRICE_COMP.day >= data_last_update).order_by(
-                finance.STK_AH_PRICE_COMP.day).limit(30)
+                finance.STK_AH_PRICE_COMP.day).limit(2)
             df = finance.run_query(q)
             if df.empty:
                 print("code:%r 本次更新没有获取到AH radio数据" % code)

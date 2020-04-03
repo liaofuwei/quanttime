@@ -15,9 +15,9 @@ import tushare as ts
 sys.path.append(('C:\\quanttime\\src\\comm'))
 import trade_date_util
 
-'''
+"""
 日常维护使用：
-1、数据来源：joinquant
+1、数据来源：joinquant, tushare
 
 2、更新finance数据，finance数据按照valuation，income，cash_flow，balance，indicator5个文件夹分别存储，
    其中20180730之前的数据已经批量获取存储在本地，之后只需要更新维护即可
@@ -27,7 +27,7 @@ import trade_date_util
    income_file_path = "C:\\quanttime\\data\\finance\\income\\"
    indicator_file_path = "C:\\quanttime\\data\\finance\\indicator\\"
 
-3、valuetion表数据是按日获取
+3、valuation表数据是按日获取
 
 4、income，cash_flow,balance,indicator表分为批量更新与指定code更新
 
@@ -37,7 +37,7 @@ import trade_date_util
 6、20190604增加tushare每日指标更新方式，按日获取所有的股票的valuation，然后分别更新到对应的文件夹
    加快更新的效率
 
-'''
+"""
 
 
 class financeMaintenance:
@@ -223,7 +223,7 @@ class financeMaintenance:
         valuation_file_path = self.finance_dir + "valuation\\"
         for code in self.stock_code:
             update_file = valuation_file_path + code + ".csv"
-            if (os.path.exists(update_file)):
+            if os.path.exists(update_file):
                 valuation_data = pd.read_csv(update_file)
                 print("%r 去重前，数据行数：%r" % (code, len(valuation_data.index)))
                 valuation_data = valuation_data.drop_duplicates('day')
@@ -244,7 +244,7 @@ class financeMaintenance:
     # ==============================================================================
     def update_valuation(self):
         '''
-        更新valuation表
+        更新valuation表 joinquant
         目标文件夹valuation_file_path = "C:\\quanttime\\data\\finance\\valuation\\"
         增量更新，更新到当前日期的前一天
         如果有新加入的stock，则创建文件
@@ -476,7 +476,7 @@ class financeMaintenance:
             tmp_start = datetime.strptime(tmp_last_date, "%Y-%m-%d") + timedelta(days=1)
             tmp_end = datetime.today().date() - timedelta(days=1)
             list_trade_date = get_trade_days(start_date=tmp_start, end_date=tmp_end)
-            if not list_trade_date:
+            if len(list_trade_date) == 0:
                 print("不用更新，start：%s，end：%s" % (str(tmp_start), str(tmp_end)))
                 continue
             for tmp_update_date in list_trade_date:
@@ -487,7 +487,7 @@ class financeMaintenance:
                 if df_data.empty:
                     print("获取的valuation数据为空")
                     continue
-                file_path = self.finance_dir + "\\valuation_day\\" + str(tmp_last_date) + '.csv'
+                file_path = self.finance_dir + "\\valuation_day\\" + str(tmp_update_date) + '.csv'
                 df_data.to_csv(file_path)
                 for i in range(len(df_data)):
                     df_stock = pd.DataFrame(data=[df_data.iloc[i].values],
@@ -501,6 +501,7 @@ class financeMaintenance:
                     tmp_name = df_data.iloc[i, df_data.columns.get_loc('code')]
                     if tmp_name in list_new_stocks:
                         print("%s 是新股，不增量更新" % tmp_name)
+                        continue
                     print("正在处理批量更新的 %s。。。。" % tmp_name)
                     file_path = self.finance_dir + "\\valuation\\" + tmp_name + '.csv'
                     df_stock.to_csv(file_path, mode='a', header=None)
@@ -796,7 +797,7 @@ class financeMaintenance:
                     if df_indicator.empty:
                         print(
                             "get indicator code:%r ,but return empty pd" %
-                            (code))
+                            code)
                         continue
                     if os.path.exists(file_path):
                         df_indicator.to_csv(file_path, mode='a', header=None)
@@ -810,11 +811,11 @@ class financeMaintenance:
     # ==============================================================================
 
     def batch_update_indicator(self, strDate):
-        '''
+        """
         批量更新indicator
         strDate：'2019q1'季度值，’2019‘年度值
         不需要传入code ，需要更新的code通过读取所有的stock code获得
-        '''
+        """
         indicator_file_path = "C:\\quanttime\\data\\finance\\indicator\\"
         # 如果有输入的code list则按照输入的code更新数据，作用主要是用于更新失败的数据，或者指定更新的code
         error_code_list = []
@@ -824,9 +825,7 @@ class financeMaintenance:
                 q = query(indicator).filter(indicator.code == code)
                 df_indicator = get_fundamentals(q, statDate=strDate)
                 if df_indicator.empty:
-                    print(
-                        "get indicator code:%r ,but return empty pd" %
-                        (code))
+                    print("get indicator code:%r ,but return empty pd" % code)
                     continue
                 if os.path.exists(file_path):
                     df_indicator.to_csv(file_path, mode='a', header=None)
@@ -837,10 +836,67 @@ class financeMaintenance:
                 continue
             print("get indicator code:%r successful" % (code))
         print("error code list:%r" % error_code_list)
+        print("处理记录冗余。。。。")
+        self.del_duplicate_indicator_record(False)
 
-    # ==============================================================================
+    # =====================================================
+    def batch_update_indicator_year(self, strDate):
+        """
+        批量更新indicator年度指标
+        strDate：'2019'年度值，
+        不需要传入code ，需要更新的code通过读取所有的stock code获得
+        """
+        indicator_file_path = "C:\\quanttime\\data\\finance\\indicator\\"
+        # 如果有输入的code list则按照输入的code更新数据，作用主要是用于更新失败的数据，或者指定更新的code
+        error_code_list = []
+        for code in self.stock_code:
+            file_path = indicator_file_path + code[0:6] + '_year' + code[6:11] + ".csv"
+            try:
+                q = query(indicator).filter(indicator.code == code)
+                df_indicator = get_fundamentals(q, statDate=strDate)
+                if df_indicator.empty:
+                    print("get indicator code:%r ,but return empty pd" % code)
+                    continue
+                if os.path.exists(file_path):
+                    df_indicator.to_csv(file_path, mode='a', header=None)
+                else:
+                    df_indicator.to_csv(file_path)
+            except BaseException:
+                error_code_list.append(code)
+                continue
+            print("get indicator code:%r successful" % (code))
+        print("error code list:%r" % error_code_list)
+        print("处理记录冗余。。。。")
+        self.del_duplicate_indicator_record(True)
+
+    # =====================================================
+    def del_duplicate_indicator_record(self, bYear):
+        """
+        删除冗余的indicator记录
+        :param bYear: true:处理年indicator文件，false处理按季度更新的indicator文件
+        :return:
+        """
+        indicator_file_path = "C:\\quanttime\\data\\finance\\indicator\\"
+        error_code_list = []
+        # for test ####self.stock_code = ['000001.XSHE','000002.XSHE','000004.XSHE']
+        for code in self.stock_code:
+            if bYear:
+                file_path = indicator_file_path + code[0:6] + '_year' + code[6:11] + ".csv"
+            else:
+                file_path = indicator_file_path + code + ".csv"
+            if os.path.exists(file_path):
+                df_indicator = pd.read_csv(file_path)
+                df_indicator = df_indicator.drop_duplicates('statDate')
+                if not df_indicator.empty:
+                    df_indicator.to_csv(file_path, index=False)
+            else:
+                error_code_list.append(code)
+        print("处理有问题code：%r" % error_code_list)
+
+
+    # =====================================================
     def update_valuation_by_ts(self):
-        '''
+        """
         通过tushare接口更新valuation表
         存储目录为"C:\\quanttime\\data\\finance\\ts\\valuation\\"
         1、首先通过tushare获取所有上市股票code--pro.stock_basic
@@ -867,7 +923,7 @@ class financeMaintenance:
        'circ_mv'：流通市值
 
         :return:
-        '''
+        """
 
         last_update = pd.read_csv(r'C:\quanttime\src\regular_maintenance\valuation_last_update.csv',
                                   index_col=["module"], parse_dates=["date"])
@@ -963,7 +1019,7 @@ class financeMaintenance:
 
     # ============================================
     def update_valuation_by_ts_day(self):
-        '''
+        """
         tushare可以按天获取所有stock的valuation数据，然后分别更新到对应不同code文件内
         对于相同日期小于500只股票的日期，后面统一采用单只按日获取更新
         当天一次性获取的所有股票的valuation，增加一个文件夹单独存储，按日期命名
@@ -971,7 +1027,7 @@ class financeMaintenance:
         存储目录为"C:\\quanttime\\data\\finance\\ts\\valuation\\"
         因为不用输入ts_code，即不需要首先获取所有股票的code信息
         :return:
-        '''
+        """
         last_update = pd.read_csv(r'C:\quanttime\src\regular_maintenance\valuation_last_update.csv',
                                   index_col=["module"], parse_dates=["date"])
         print(last_update)
@@ -1089,11 +1145,11 @@ class financeMaintenance:
 
     # =========================================
     def update_valuation_by_ts_by_code(self, ts_code):
-        '''
+        """
         使用tushare接口，单只股票更新valuation
         :param ts_code: ts code
         :return:
-        '''
+        """
         basic_dir = "C:\\quanttime\\data\\finance\\ts\\valuation\\"
         finance_db = self.mongo_client["ts_finance_db"]
         end_date = str(datetime.today().date() - timedelta(days=1))
@@ -1124,11 +1180,9 @@ class financeMaintenance:
             table.insert_many(df_data.to_dict(orient="record"))
             print("tushare 更新valuation数据 完成，code：%s" % ts_code)
 
-
-
     # =========================================
     def update_indicator_by_ts(self):
-        '''
+        """
         运行时间可以在每年的1-15至4-30 一季报年报
         7-15至8-31 半年报
         10月 三季报
@@ -1140,7 +1194,7 @@ class financeMaintenance:
                 报告期按照：1231年报，0331一季报 0630半年报 0930三季报
         :return:
 
-        '''
+        """
         # 股票基本信息只获取ts_code与list_date
         stock_basic = self.pro.stock_basic(exchange='', list_status='L', fields='ts_code,list_date')
         if stock_basic.empty:
@@ -1204,8 +1258,36 @@ class financeMaintenance:
                 print("code:%s 首次获取indicator数据更新完成" % stock_code)
             time.sleep(1)
 
-
-
+    # ====================
+    def get_all_jq_indicator_together(self):
+        """
+        将所有的jq的indicator表，增加roe3，roe5后，聚合成一张大表indicator_all_year.csv，再查询是就不用每张表读取，计算
+        步骤是读取finance/indicator下每一个year的文件，然后计算roe的三年平均与五年平均
+        如果要计算其他指标的统计数据，可以根据需求添加
+        :return:
+        """
+        indicator_file_path = "C:\\quanttime\\data\\finance\\indicator\\"
+        # 如果有输入的code list则按照输入的code更新数据，作用主要是用于更新失败的数据，或者指定更新的code
+        error_code_list = []
+        df_indicator = pd.DataFrame()
+        for code in self.stock_code:
+            file_path = indicator_file_path + code[0:6] + '_year' + code[6:11] + ".csv"
+            if os.path.exists(file_path):
+                df_tmp = pd.read_csv(file_path)
+                if len(df_tmp) >= 5:
+                    df_tmp["roe5"] = df_tmp.iloc[-5:, df_tmp.columns.get_loc('inc_return')].mean()
+                    df_tmp["roe3"] = df_tmp.iloc[-3:, df_tmp.columns.get_loc('inc_return')].mean()
+                elif len(df_tmp) >= 3:
+                    df_tmp["roe3"] = df_tmp.iloc[-3:, df_tmp.columns.get_loc('inc_return')].mean()
+                    df_tmp["roe5"] = -1
+                else:
+                    df_tmp["roe5"] = -1
+                    df_tmp["roe3"] = -1
+                df_indicator = pd.concat([df_indicator, df_tmp])
+            else:
+                error_code_list.append(code)
+        print("不存在的stock indicator file：%r" % error_code_list)
+        df_indicator.to_csv(indicator_file_path + 'indicator_all_year.csv', index=False)
 
 
 if __name__ == "__main__":
@@ -1219,7 +1301,16 @@ if __name__ == "__main__":
     # regular.batch_update_case_flow('2018q3')
     # regular.update_indicator(["000001.XSHE"],'2018q2')
     # regular.batch_update_indicator('2018q3')
-    #regular.update_valuation_by_ts()
+    # regular.update_valuation_by_ts()
     # regular.update_indicator_by_ts()
     # regular.update_valuation_by_jq_day()
-    regular.update_valuation_by_jq_day()
+    # regular.update_valuation_by_jq_day()
+    # regular.update_valuation_jq_by_code("000776.XSHE")
+
+    #update_quar = [str(i) for i in range(2006, 2020)]
+    #for date in update_quar:
+    #   regular.batch_update_indicator_year(date)
+    # regular.batch_update_indicator("2019q2")
+    # regular.get_all_jq_indicator_together()
+    regular.del_duplicate_indicator_record(False)
+

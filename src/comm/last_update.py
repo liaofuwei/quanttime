@@ -15,8 +15,8 @@ def is_last_update_ok(module_name, date=yesterday):
     A	    2019/5/13
 
     与输入的日期做比较判断是否当前已经更新
-    :param module_name:模块名
-    :param date: 日期
+    :param module_name: str 模块名
+    :param date: datetime 日期
     :return: true--已经更新，false--无更新或者当天更新失败
     '''
     last_update = pd.read_csv("last_update.csv", index_col=["module"], parse_dates=["date"])

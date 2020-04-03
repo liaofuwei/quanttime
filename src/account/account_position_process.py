@@ -3,8 +3,7 @@ __author__ = 'liaowei'
 
 import pandas as pd
 import os
-import numpy as np
-import re
+
 
 # futu的交易记录文件hk-order.csv
 futu_account = r'C:\quanttime\data\account\trade_record\hk-order.csv'
@@ -15,8 +14,8 @@ futu_account = r'C:\quanttime\data\account\trade_record\hk-order.csv'
 出现htxx-20190731这样的命名主要是华泰在交易时间保存的交易记录只能下载30日
 所有出现了脑残的31日单独的一天
 """
-account_dir = "C:\\quanttime\\data\\account\\trade_record\\"
-write_dir = "C:\\quanttime\\data\\account\\"
+account_dir = ":\\quanttime\\data\\account\\trade_record\\"
+write_dir = ":\\quanttime\\data\\account\\"
 
 
 def process_ht_trade_record():
@@ -24,6 +23,8 @@ def process_ht_trade_record():
     处理华泰的交易记录
     :return:
     """
+    disk_name = os.getcwd()[0]
+
     date_ranges = [201710, 201711, 201712,
                    201801, 201802, 201803, 201804, 201805, 201806, 201807, 201808, 201809, 201810, 201811, 201812,
                    201901, 201902, 201903, 201904, 201905, 201906, 201907, 201908, 201909, 201910, 201911, 201912,
@@ -40,17 +41,17 @@ def process_ht_trade_record():
     exclude_code_list = ['204001', '131810', '204007', '940247', '940037', '003474', '940018', '204004', '000662',
                          '131811', '204003', '132073', 'SHC827']
     for account in ["ht48-", "ht49-"]:
-        select_stock_path = write_dir + account + '.csv'
+        select_stock_path = disk_name + write_dir + account + '.csv'
         # 先清除csv里的内容
         df_tmp = pd.DataFrame()
         df_tmp.to_csv(select_stock_path)
 
         # ht48_all_record.csv,按股票code记录交易记录，为界面调取单只股票交易轨迹储备，减少文件处理的复杂度
-        all_record_path = write_dir + account + 'all_record.csv'
+        all_record_path = disk_name + write_dir + account + 'all_record.csv'
         df_all_record = pd.DataFrame(columns=ht_columns_name)
 
         for year_month in date_ranges:
-            file_path = account_dir + account + str(year_month) + ".csv"
+            file_path = disk_name + account_dir + account + str(year_month) + ".csv"
             if os.path.exists(file_path):
                 ht_cici = pd.read_csv(file_path, encoding="gbk", usecols=[0, 2, 3, 4, 5, 6, 7], header=0,
                                       names=ht_columns_name, parse_dates=['trade_date'])
@@ -129,4 +130,5 @@ def process_futu_trade_record():
 
 
 if __name__ == "__main__":
-    process_futu_trade_record()
+    # process_futu_trade_record()
+    process_ht_trade_record()

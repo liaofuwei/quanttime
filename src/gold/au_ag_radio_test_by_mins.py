@@ -15,8 +15,6 @@ import mydefinelib as mylib
 class AUAGRadioTest(object):
 
     def __init__(self):
-
-
 		#仓位信息
         self.position = {"ag": {"amount": 0, "price": 0, "totals": 0},
                          "au": {"amount": 0, "price": 0, "totals": 0},
@@ -25,10 +23,10 @@ class AUAGRadioTest(object):
                          "equity":1000000,
 						 "timestamp":"2000-01-01 00:00:00"}
 
-        self.start_back_test = "2018-01-03"
-        self.end_back_test = "2019-3-18"
+        self.start_back_test = "2019-01-01"
+        self.end_back_test = "2019-06-21"
         self.loss_limit = 0.01  #设置止损比例
-        self.b_loss_limit = True #true进行止损操作，false不进行止损操作
+        self.b_loss_limit = False #true进行止损操作，false不进行止损操作
         self.back_day_stat = -20  #设置当前日期往前推几天的统计信息
         self.long_buy_value = 0.10  #做多金银比，统计买入线，如0.10即10%分位线
         self.long_sell_value = 0.20 #做多金银比，统计卖出线，如0.15即15%分位线

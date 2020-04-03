@@ -1,7 +1,7 @@
 #-*-coding:utf-8 -*-
 __author__ = 'Administrator'
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import pandas as pd
 import calendar
 from dateutil.parser import parse
@@ -299,7 +299,27 @@ def get_trade_date_range2(start_date, end_date):
 # =========================
 
 
-def to_date(date):
+def get_trade_date_by_count(start_date, count):
+    '''
+    根据指定的起始日期，往前推count天
+    这里往前推的日期不包括start_date，也就是从start_date的前一天开始计算
+    :param start_date: datetime，date，str
+    :param count: int 天
+    :return: list date类型
+    '''
+    start = to_date(start_date)
+    if start is None:
+        return start_date
+    trade_date_file = r'C:\quanttime\data\basic_info\all_trade_day.csv'
+    trade_date = pd.read_csv(trade_date_file, index_col=["trade_date"], parse_dates=True)
+    list_trade_date = trade_date.index.tolist()
+    list_trade_date = [d.date() for d in list_trade_date]
+    return [d for d in list_trade_date if d <= start][-count-1:]
+
+# =========================
+
+
+def to_date(input_date):
     '''
     convert_date('2015-1-1')
     datetime.date(2015, 1, 1)
@@ -313,15 +333,15 @@ def to_date(date):
     convert_date(datetime.date(2015, 1, 1))
     datetime.date(2015, 1, 1)
     '''
-    if is_str(date):
-        if ':' in date:
-            date = date[:10]
-        return datetime.strptime(date, '%Y-%m-%d').date()
-    elif isinstance(date, datetime):
-        return date.date()
-    elif isinstance(date, datetime.date):
-        return date
-    elif date is None:
+    if is_str(input_date):
+        if ':' in input_date:
+            input_date = input_date[:10]
+        return datetime.strptime(input_date, '%Y-%m-%d').date()
+    elif isinstance(input_date, datetime):
+        return input_date.date()
+    elif isinstance(input_date, date):
+        return input_date
+    elif input_date is None:
         return None
 
 
@@ -335,6 +355,7 @@ if __name__ == "__main__":
     # print(get_trade_list("20190415","2019-04-19"))
     # ret = get_close_trade_date("2018-07-01", 1)
     # ret = get_next_trade_date("2019-5-6")
-    ret = get_trade_date_range2(datetime(2019, 5, 7), datetime(2019, 5, 10))
+    ret = get_trade_date_range2(datetime(2019, 5, 7).date(), datetime(2019, 5, 10))
+    ret = get_trade_date_by_count("2019-04-28", 3)
     print(ret)
 

@@ -105,6 +105,8 @@ class BankThread(QtCore.QThread):
         columns_name = ["ts_code", "end_date", "cash_div_tax", "record_date", "pay_date"]
         get_feilds = 'ts_code,end_date,cash_div_tax,record_date,pay_date'
         df_bank_dividend = pd.DataFrame(columns=columns_name)
+        curr_year = datetime.today().year
+        end_dividend_date = datetime(curr_year-1, 12, 31).date().strftime("%Y%m%d")
 
         # df_bank_dividend = self.pro.dividend(ts_code=ts_code_list.pop(0), fields=get_feilds)
         for ts_code in ts_code_list:
@@ -112,7 +114,9 @@ class BankThread(QtCore.QThread):
             if df_tmp.empty:
                 continue
             # 只取第一行最新的记录，旧的分红记录不需要
-            df_tmp = df_tmp.loc[df_tmp.index[0], columns_name]
+            # df_tmp = df_tmp.loc[df_tmp.index[0], columns_name]
+            df_tmp = df_tmp[df_tmp['end_date'] == end_dividend_date]
+            df_tmp = df_tmp.iloc[0, :]
             df_bank_dividend = df_bank_dividend.append(df_tmp, ignore_index=True)
         return df_bank_dividend
 
@@ -167,3 +171,9 @@ class BankThread(QtCore.QThread):
             return 0
 
         return "%.2f%%" % (data * 100)
+
+# ==============
+if __name__ == "__main__":
+    theBank = BankThread()
+    df = theBank.get_dividend_by_tushare(["000001.SZ"])
+    print(df)

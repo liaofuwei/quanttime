@@ -24,8 +24,8 @@ class AUAGRadioTest(object):
                          "status": "empty",
                          "equity":1000000,
 						 "timestamp":"2000-01-01 00:00:00"}
-        self.start_back_test = "2013-01-03"
-        self.end_back_test = "2019-3-18"
+        self.start_back_test = "2019-01-03"
+        self.end_back_test = "2019-05-06"
         self.loss_limit = 0.01  #设置止损比例
         self.b_loss_limit = True #true进行止损操作，false不进行止损操作
         self.back_day_stat = -20  #设置当前日期往前推几天的统计信息
@@ -560,4 +560,4 @@ if __name__ == "__main__":
     #print(result)
     #print(result2)
     #print(type(result))
-    #test.run_back_test()
+    test.run_back_test()

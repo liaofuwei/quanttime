@@ -37,9 +37,19 @@ class BondMainWindows(object):
 
         # 重点监测可转债checkboxsignal
         self.ui.checkBox.stateChanged.connect(self.select_or_cancel_all_bond_status)
+        # premium table的checkbox signal
+        self.ui.checkBox_8.stateChanged.connect(self.select_or_cancel_premium_table_state)
 
         # 转债的基本信息，从本地csv中读取的信息
         self.df_convertbond_basic_info = pd.DataFrame()
+
+        # 可转债的实时行情df
+        self.df_bond_rt_quotes = pd.DataFrame()
+        self.quotes_bond_code = []
+
+        # 正股的实时行情df
+        self.df_stock_rt_quotes = pd.DataFrame()
+        self.quotes_stock_code = []
 
         # 转债基本信息以及转债实时行情，股票实时行情
         self.df_bond_total = pd.DataFrame()
@@ -57,10 +67,15 @@ class BondMainWindows(object):
         # ts 授权
         self.pro = ts.pro_api()
 
-        # 注册交易接口
-        self.user = easytrader.use('ht_client')
-        # self.user.prepare(user='666626218349', password='836198', comm_password='sam155')
-        self.user.prepare(user='666628601648', password='836198', comm_password='sam155')
+        # 设定默认的行情数据, 通达信默认行情源，tushare，joinquant可选
+        self.ui.checkBox_4.setCheckState(QtCore.Qt.Checked)
+        self.ui.checkBox_5.setCheckState(QtCore.Qt.Unchecked)
+        self.ui.checkBox_7.setCheckState(QtCore.Qt.Unchecked)
+
+        # 注册交易接口,初始化时，登录交易接口默认为不登录，需要勾选才登录
+        self.user = 0
+        self.ui.checkBox_6.setCheckState(QtCore.Qt.Unchecked)
+        self.ui.checkBox_6.stateChanged.connect(self.register_trade)
 
         main_window.show()
         sys.exit(app.exec_())
@@ -81,8 +96,20 @@ class BondMainWindows(object):
         raw_data.to_csv(self.ui.lineEdit_2.text(), encoding="gbk")
 
     # ==============================================================
+    def register_trade(self, state):
+        '''
+        注册交易接口，当选定时，登录华泰的交易接口，避免长时间登录
+        :return:
+        '''
+        # 注册交易接口
+        if state == QtCore.Qt.Checked:
+            self.user = easytrader.use('ht_client')
+            # self.user.prepare(user='666626218349', password='836198', comm_password='sam155')
+            self.user.prepare(user='666628601648', password='836198', comm_password='sam155')
+    # ==============================================================
 
-    def format_convert_price(self, x):
+    @staticmethod
+    def format_convert_price(x):
         '''
         格式化转股价，处理集思录为了标记转股价修改次数标记星号，形如（4.56**）
         :return:
@@ -134,10 +161,6 @@ class BondMainWindows(object):
         self.ui.tableWidget.setRowCount(len(df_bond_basic))
 
         for i in range(len(df_bond_basic)):
-            newItem = QtWidgets.QCheckBox()
-            newItem.setCheckState(QtCore.Qt.Checked)
-            self.ui.tableWidget.setCellWidget(i, 0, newItem)
-
             newItem = QtWidgets.QTableWidgetItem(
                 str(df_bond_basic.iloc[i, df_bond_basic.columns.get_loc('code_bond')]))
             self.ui.tableWidget.setItem(i, 1, newItem)
@@ -173,16 +196,21 @@ class BondMainWindows(object):
             self.ui.tableWidget.setItem(i, 11, newItem)
 
             newItem = QtWidgets.QCheckBox()
+            newItem1 = QtWidgets.QCheckBox()
             bond_code = df_bond_basic.iloc[i, df_bond_basic.columns.get_loc('code_bond')]
             try:
                 if_convesion = df_converion_period.loc[bond_code, ["if_conversion"]].if_conversion
                 if str(if_convesion) == "Y":
                     newItem.setCheckState(QtCore.Qt.Checked)
+                    newItem1.setCheckState(QtCore.Qt.Checked)
                 else:
                     newItem.setCheckState(QtCore.Qt.Unchecked)
+                    newItem1.setCheckState(QtCore.Qt.Unchecked)
             except:
                 newItem.setCheckState(QtCore.Qt.Unchecked)
+                newItem1.setCheckState(QtCore.Qt.Unchecked)
             self.ui.tableWidget.setCellWidget(i, 12, newItem)
+            self.ui.tableWidget.setCellWidget(i, 0, newItem1)
 
     # ==============================================================
 
@@ -204,6 +232,27 @@ class BondMainWindows(object):
                 newItem = QtWidgets.QCheckBox()
                 newItem.setCheckState(QtCore.Qt.Unchecked)
                 self.ui.tableWidget.setCellWidget(i, 0, newItem)
+
+    # ===============================================================
+
+    def select_or_cancel_premium_table_state(self):
+        '''
+        勾选或者取消premium表的checkbox状态
+        :return:
+        '''
+        if self.ui.tableWidget_2.rowCount() == 0:
+            return
+
+        if self.ui.checkBox_8.checkState() == QtCore.Qt.Checked:
+            for i in range(self.ui.tableWidget_2.rowCount()):
+                item = QtWidgets.QCheckBox()
+                item.setCheckState(QtCore.Qt.Checked)
+                self.ui.tableWidget_2.setCellWidget(i, 0, item)
+        else:
+            for i in range(self.ui.tableWidget_2.rowCount()):
+                item = QtWidgets.QCheckBox()
+                item.setCheckState(QtCore.Qt.Unchecked)
+                self.ui.tableWidget_2.setCellWidget(i, 0, item)
 
     # ===============================================================
 
@@ -353,10 +402,13 @@ class BondMainWindows(object):
         self.get_premium()
         rows = len(self.df_bond_total)
         self.ui.tableWidget_2.setRowCount(rows)
-        print(self.df_bond_total)
+        print(self.df_bond_total.head(1))
         for i in range(rows):
             item = QtWidgets.QCheckBox()
-            item.setCheckState(QtCore.Qt.Checked)
+            if self.df_bond_total.iloc[i, self.df_bond_total.columns.get_loc("premium")] < 0:
+                item.setCheckState(QtCore.Qt.Checked)
+            else:
+                item.setCheckState(QtCore.Qt.Unchecked)
             self.ui.tableWidget_2.setCellWidget(i, 0, item)
 
             item = QtWidgets.QTableWidgetItem(
@@ -380,6 +432,13 @@ class BondMainWindows(object):
             self.ui.tableWidget_2.setItem(i, 5, item)
         self.ui.textBrowser_2.clear()
 
+    # ===========================================================
+
+    def display_key_premium_table(self):
+        '''
+        重点监视premium<0的转债
+        :return:
+        '''
 
     # ===========================================================
 
@@ -462,28 +521,29 @@ class BondMainWindows(object):
         self.ui.textBrowser_2.append("买入10张转债，卖出对应数量正股，获利(为正可获利)：%.2f" % diff)
 
         # 从账户中读取仓位信息
-        position = self.user.position
-        # 持仓正股的最大可卖数量
-        max_sell_amount = 0
-        for stock in position:
-            if stock['证券代码'] == stock_code[0:6]:
-                print("可用余额： %s" % stock['可用余额'])
-                self.ui.textBrowser_2.append("持仓可用股票余额：%s" % stock['可用余额'])
-                if stock['可用余额'] > 0:
-                    max_sell_amount = float(stock['可用余额'])
-        if max_sell_amount >= 100:
-            buy_bond_vol = self.position_stock2bond(max_sell_amount,
-                                                    bond_value.iloc[0, bond_value.columns.get_loc('bond2amount')])
-            self.ui.textBrowser_2.append("持仓可用股票余额对应需要买入转债手数：%d" % buy_bond_vol)
-            self.ui.lineEdit_5.setText(str(int(buy_bond_vol)))
-            self.ui.lineEdit_6.setText(str(int(max_sell_amount)))
-            self.ui.lineEdit_7.setText(bond_code)
-            self.ui.lineEdit_8.setText(str(bond_value.iloc[0, bond_value.columns.get_loc('bond_ask1')]/10))
-            self.ui.lineEdit_9.setText(stock_code)
-            self.ui.lineEdit_10.setText(str(bond_value.iloc[0, bond_value.columns.get_loc('stock_bid')]))
+        if self.user:
+            position = self.user.position
+            # 持仓正股的最大可卖数量
+            max_sell_amount = 0
+            for stock in position:
+                if stock['证券代码'] == stock_code[0:6]:
+                    print("可用余额： %s" % stock['可用余额'])
+                    self.ui.textBrowser_2.append("持仓可用股票余额：%s" % stock['可用余额'])
+                    if stock['可用余额'] > 0:
+                        max_sell_amount = float(stock['可用余额'])
+            if max_sell_amount >= 100:
+                buy_bond_vol = self.position_stock2bond(max_sell_amount,
+                                                        bond_value.iloc[0, bond_value.columns.get_loc('bond2amount')])
+                self.ui.textBrowser_2.append("持仓可用股票余额对应需要买入转债手数：%d" % buy_bond_vol)
+                self.ui.lineEdit_5.setText(str(int(buy_bond_vol)))
+                self.ui.lineEdit_6.setText(str(int(max_sell_amount)))
+                self.ui.lineEdit_7.setText(bond_code)
+                self.ui.lineEdit_8.setText(str(bond_value.iloc[0, bond_value.columns.get_loc('bond_ask1')]/10))
+                self.ui.lineEdit_9.setText(stock_code)
+                self.ui.lineEdit_10.setText(str(bond_value.iloc[0, bond_value.columns.get_loc('stock_bid')]))
 
-        else:
-            self.ui.textBrowser_2.append("持仓中不包含选中转债对应的股票")
+            else:
+                self.ui.textBrowser_2.append("持仓中不包含选中转债对应的股票")
 
     # =============================================================
 
@@ -515,11 +575,18 @@ class BondMainWindows(object):
         self.ui.textBrowser.append("价格：%f" % bond_price)
         self.ui.textBrowser.append("数量：%d" % bond_amount)
 
-
-
-
     # ==============================================================
-    def standard_code(self, x):
+    def get_quotes(self):
+        '''
+        获取实时行情信息，把行情剥离出业务逻辑，单独处理，方便后续增加数据行情源
+        :return:
+        '''
+        check_status = self.ui.checkBox_4.checkState()
+        if check_status == QtCore.Qt.Checked:
+            print("tongdaxin")
+    # ==============================================================
+    @staticmethod
+    def standard_code(x):
         '''
         标准化code代码. joinquant code --> tushare code
         convert_bond_basic_info.csv中的stock code 是joinquant格式的stock code
@@ -538,8 +605,8 @@ class BondMainWindows(object):
             return -1
 
     # ==============================================================
-
-    def amount(self, x):
+    @staticmethod
+    def amount(x):
         '''
         该函数处理一张转债对应的正股股数
         计算方法如下：转债面值（即100）除以转股价
@@ -555,9 +622,10 @@ class BondMainWindows(object):
         else:
             return 100/x
 
-    #========================================================
+    # ========================================================
 
-    def position_stock2bond(self, position_stock, bond2stock_vol):
+    @staticmethod
+    def position_stock2bond(position_stock, bond2stock_vol):
         '''
         根据持仓的正股数量，计算最佳的转债买入量
         :param position_stock: 正股持仓量
@@ -595,7 +663,6 @@ class BondMainWindows(object):
                 return math.modf(tmp_int)[1] + 1
             else:
                 return math.modf(tmp_int)[1]
-
 
 
 if __name__ == "__main__":

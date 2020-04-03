@@ -6,6 +6,7 @@ import sys
 from datetime import datetime, timedelta, date
 from jqdatasdk import *
 import logging
+import time
 
 sys.path.append('C:\\quanttime\\src\\comm\\')
 import trade_date_util
@@ -41,15 +42,20 @@ class IndexRotationTest(object):
         if st_start is None:
             # 默认从该指数起始的日期开始回测
             self.back_test_start = None
+            log_st = " "
         else:
             self.back_test_start = datetime.strptime(st_start, "%Y-%m-%d")
+            log_st = str(st_start)
         if st_end is None:
             # 默认回测到当前日期的昨天
             self.back_test_end = datetime.today() - timedelta(days=1)
+            log_end = str(datetime.today().date())
         else:
             self.back_test_end = datetime.strptime(st_end, "%Y-%m-%d")
+            log_end = str(st_end)
 
-        log_name = "IndexRotationTest_" + str(self.front_buy) + "_" + str(self.end_sell) + ".log"
+        log_name = "IndexRotationTest_" + \
+                   str(self.front_buy) + "_" + str(self.end_sell) + "_" + log_st + "_" + log_end + ".log"
         log_path = "C:\\quanttime\\log\\"
         log_file = log_path + log_name
         # 初始化日志
@@ -92,17 +98,17 @@ class IndexRotationTest(object):
             close_end_sell = df.loc[pre_end_sell, ["close"]]["close"]
         except KeyError:
             return "unkown"
-        print("index:%s, 交易日：%s前一天收盘价：%.2f, 前20天close：%.2f, 前end天close：%.2f," %
-              (code, str(trade_date), close_1, close_front_buy, close_end_sell))
+        self.log.debug("index:%s, 交易日：%s前一天收盘价：%.2f, 前20天close：%.2f, 前end天close：%.2f," %
+                       (code, str(trade_date), close_1, close_front_buy, close_end_sell))
 
         if (close_1 > close_front_buy) and (close_1 > close_end_sell):
-            print("buy")
+            self.log.debug("buy")
             return "buy"
         elif (close_1 < close_end_sell) and (close_1 < close_front_buy):
-            print("sell")
+            self.log.debug("sell")
             return "sell"
         else:
-            print("hold")
+            self.log.debug("hold")
             return "hold"
     # ============================================
 
@@ -191,6 +197,7 @@ class IndexRotationTest(object):
             # 交易结果list，内部元素时一个字典数据，按照交易方向_日期：交易点位，如'buy_2019-02-11': 604.26
             # 形如[{'buy_2019-01-07': 596.43},{'sell_2019-02-01': 597.81},
             # {'buy_2019-02-11': 604.26},{'sell_2019-03-25': 791.65}]
+            self.position = 0
             list_trade_result_record = []
             if self.back_test_start is None:
                 start_date = index_security.loc[code, ["start_date"]]["start_date"]
@@ -222,10 +229,10 @@ class IndexRotationTest(object):
                         print("%s 卖出index：%s,价格：%.2f" % (str(st), code, sell_price))
                         self.log.info("%s 卖出index：%s,价格：%.2f" % (str(st), code, sell_price))
                     except KeyError:
-                        print("date:%s 没有对应的指数值" % str(st))
+                        self.log.debug("date:%s 没有对应的指数值" % str(st))
                     self.position = 0
                 else:
-                    print("date:%s 指数相对20天前没有变化或获取的状态未知" % str(st))
+                    self.log.debug("date:%s 指数相对20天前没有变化或获取的状态未知" % str(st))
             self.log.info("index:%s,trade_list:%r" % (code, list_trade_result_record))
             # 返回结果[收益，交易次数，胜率，单次最大收益，单次最大损失]
             result = self.process_trade_result(list_trade_result_record)
@@ -245,6 +252,18 @@ class IndexRotationTest(object):
                 df_result = pd.DataFrame(data=list_result, columns=columns_name)
                 save_file = "C:\\quanttime\\data\\tmp\\" + "index_rotation_test_" + str(self.front_buy) + "_" + \
                     str(self.end_sell) + ".csv"
+                try:
+                    df_result.to_csv(save_file, mode='a', encoding="gbk", index=False)
+                except PermissionError:
+                    time.sleep(30)
+                    df_result.to_csv(save_file, mode='a', encoding="gbk", index=False)
+                counter = 0
+                list_result.clear()
+            elif len(self.index_codes) <= 10:
+                df_result = pd.DataFrame(data=list_result, columns=columns_name)
+                save_file = "C:\\quanttime\\data\\tmp\\" + "index_rotation_test_" + str(self.front_buy) + "_" + \
+                            str(self.end_sell) + ".csv"
+
                 df_result.to_csv(save_file, mode='a', encoding="gbk", index=False)
                 counter = 0
                 list_result.clear()
@@ -254,5 +273,7 @@ class IndexRotationTest(object):
 
 if __name__ == "__main__":
     # test = IndexRotationTest(index_codes=["399975.XSHE"], st_start="2019-01-03")
-    test = IndexRotationTest(st_start="2019-01-03")
+    # code_list = ["3999" + str(i) + ".XSHE" for i in range(78, 99) if i != 88 and i != 84]
+    # print(code_list)
+    test = IndexRotationTest(index_codes=["399975.XSHE"], st_start="2016-01-01", st_end="2019-06-21")
     test.calc_index_rotation()
