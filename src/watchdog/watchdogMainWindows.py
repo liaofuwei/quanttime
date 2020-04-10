@@ -45,6 +45,7 @@ class WatchDogMainWindows(QtCore.QObject):
 
         self.ui.pushButton_11.clicked.connect(self.update_watch_code)
         self.ui.pushButton_9.clicked.connect(self.add_position_stock_to_watch)
+        self.ui.pushButton_10.clicked.connect(self.del_watch_stock_record)
 
         # 将监控窗口的信息转存到csv
         self.ui.pushButton_3.clicked.connect(self.save_watch_stock)
@@ -94,14 +95,14 @@ class WatchDogMainWindows(QtCore.QObject):
             item = QtWidgets.QTableWidgetItem(str(row["if_win"]))
             self.ui.tableWidget.setItem(irow, 5, item)
 
-            item = QtWidgets.QCheckBox()
+            item = QtWidgets.QTableWidgetItem()
             if row["if_win"] == 1:
                 item.setCheckState(QtCore.Qt.Checked)
-                self.ui.tableWidget.setCellWidget(irow, 5, item)
+                self.ui.tableWidget.setItem(irow, 5, item)
             else:
                 # 即没有明确弹窗的，一律认为不做弹窗处理
                 item.setCheckState(QtCore.Qt.Unchecked)
-                self.ui.tableWidget.setCellWidget(irow, 5, item)
+                self.ui.tableWidget.setItem(irow, 5, item)
             irow = irow + 1
 
     # ============
@@ -167,7 +168,8 @@ class WatchDogMainWindows(QtCore.QObject):
         self.add_ht49_position_to_watch()
         self.add_zs_position_to_watch()
 
-        self.update_watch_code()
+        # 添加完手动更新列表，防止在更新实时价格的时候同时更新监控列表
+        # self.update_watch_code()
 
     # ===========================
 
@@ -189,10 +191,14 @@ class WatchDogMainWindows(QtCore.QObject):
         :param qlist_items: 获取的选中的items
         :return:
         """
+        # print("selected item:%d" % len(qlist_items))
         row = int(len(qlist_items) / 5)
         for i in range(row):
-            code = qlist_items[4 * i]
-            name = qlist_items[4 * i + 1]
+            code = qlist_items[5 * i]
+            name = qlist_items[5 * i + 1]
+            # print("code:%s" % str(code.text()))
+            if str(code.text()) in self.need_watch_codes:
+                continue
             curr_row = self.ui.tableWidget.rowCount()
             self.ui.tableWidget.insertRow(curr_row)
             item = QtWidgets.QTableWidgetItem(code.text())
@@ -205,9 +211,10 @@ class WatchDogMainWindows(QtCore.QObject):
             self.ui.tableWidget.setItem(curr_row, 2, item)
             item = QtWidgets.QTableWidgetItem("1000")
             self.ui.tableWidget.setItem(curr_row, 3, item)
-            item = QtWidgets.QCheckBox()
+
+            item = QtWidgets.QTableWidgetItem()
             item.setCheckState(QtCore.Qt.Unchecked)
-            self.ui.tableWidget.setCellWidget(curr_row, 5, item)
+            self.ui.tableWidget.setItem(curr_row, 5, item)
 
     # ===========================
 
@@ -352,15 +359,17 @@ class WatchDogMainWindows(QtCore.QObject):
 
         if os.path.exists(ht_48):
             df_position = pd.read_csv(ht_48, header=0, names=ht_columns_names, encoding="gbk")
+            df_position = df_position.sort_values(by=["total_values"], ascending=False)
             self.ui.tableWidget_2.setRowCount(len(df_position))
-
+            i_row = 0
             for index, row in df_position.iterrows():
                 for column_index, column in enumerate(display_column):
                     if column == "cost_price":
-                        item = QtWidgets.QTableWidgetItem(str(round(row[column], 2)))
+                        item = QtWidgets.QTableWidgetItem(str(round(row[column], 3)))
                     else:
                         item = QtWidgets.QTableWidgetItem(str(row[column]))
-                    self.ui.tableWidget_2.setItem(index, column_index, item)
+                    self.ui.tableWidget_2.setItem(i_row, column_index, item)
+                i_row = i_row + 1
         else:
             print("%s 文件不存在" % ht_48)
 
@@ -377,15 +386,17 @@ class WatchDogMainWindows(QtCore.QObject):
 
         if os.path.exists(ht_49):
             df_position = pd.read_csv(ht_49, header=0, names=ht_columns_names, encoding="gbk")
+            df_position = df_position.sort_values(by=["total_values"], ascending=False)
             self.ui.tableWidget_3.setRowCount(len(df_position))
-
+            i_row = 0
             for index, row in df_position.iterrows():
                 for column_index, column in enumerate(display_column):
                     if column == "cost_price":
-                        item = QtWidgets.QTableWidgetItem(str(round(row[column], 2)))
+                        item = QtWidgets.QTableWidgetItem(str(round(row[column], 3)))
                     else:
                         item = QtWidgets.QTableWidgetItem(str(row[column]))
-                    self.ui.tableWidget_3.setItem(index, column_index, item)
+                    self.ui.tableWidget_3.setItem(i_row, column_index, item)
+                i_row = i_row + 1
         else:
             print("%s 文件不存在" % ht_49)
 
@@ -402,15 +413,17 @@ class WatchDogMainWindows(QtCore.QObject):
         display_column = ["code", "name", "cost_price", "amount", "total_values"]
         if os.path.exists(gs):
             df_position = pd.read_csv(gs, header=0, names=gs_columns_names, encoding="gbk", skiprows=3)
+            df_position = df_position.sort_values(by=["total_values"], ascending=False)
             self.ui.tableWidget_4.setRowCount(len(df_position))
-
+            i_row = 0
             for index, row in df_position.iterrows():
                 for column_index, column in enumerate(display_column):
                     if column == "cost_price":
-                        item = QtWidgets.QTableWidgetItem(str(round(row[column], 2)))
+                        item = QtWidgets.QTableWidgetItem(str(round(row[column], 3)))
                     else:
                         item = QtWidgets.QTableWidgetItem(str(row[column]))
-                    self.ui.tableWidget_4.setItem(index, column_index, item)
+                    self.ui.tableWidget_4.setItem(i_row, column_index, item)
+                i_row = i_row + 1
         else:
             print("%s 文件不存在" % gs)
 
@@ -426,16 +439,18 @@ class WatchDogMainWindows(QtCore.QObject):
         display_column = ["code", "name", "cost_price", "amount", "total_values"]
         if os.path.exists(gs):
             df_position = pd.read_csv(gs, header=0, names=gs_columns_names, encoding="gbk", skiprows=3)
+            df_position = df_position.sort_values(by=["total_values"], ascending=False)
             self.ui.tableWidget_5.setRowCount(len(df_position))
             # print(df_position)
-
+            i_row = 0
             for index, row in df_position.iterrows():
                 for column_index, column in enumerate(display_column):
                     if column == "cost_price":
-                        item = QtWidgets.QTableWidgetItem(str(round(row[column], 2)))
+                        item = QtWidgets.QTableWidgetItem(str(round(row[column], 3)))
                     else:
                         item = QtWidgets.QTableWidgetItem(str(row[column]))
-                    self.ui.tableWidget_5.setItem(index, column_index, item)
+                    self.ui.tableWidget_5.setItem(i_row, column_index, item)
+                i_row = i_row + 1
         else:
             print("%s 文件不存在" % gs)
 
@@ -447,11 +462,14 @@ class WatchDogMainWindows(QtCore.QObject):
         """
         column_name = ["code", "name", "低价预警", "高价预警", "是否弹窗"]
         data_list = []
+        # print("watch table row:%d" % self.ui.tableWidget.rowCount())
         for i in range(self.ui.tableWidget.rowCount()):
             row_record = []
             for j in range(self.ui.tableWidget.columnCount()-3):
                 item = self.ui.tableWidget.item(i, j).text()
                 row_record.append(item)
+            # print("watch table:%r" % type(self.ui.tableWidget.item(i, 5)))
+            # print("watch code:%s" % self.ui.tableWidget.item(i, 1).text())
             if self.ui.tableWidget.item(i, 5).checkState() == QtCore.Qt.Checked:
                 row_record.append("1")
             else:
@@ -460,6 +478,32 @@ class WatchDogMainWindows(QtCore.QObject):
         df = pd.DataFrame(data=data_list, columns=column_name)
         # print(df)
         df.to_csv("watchdog.csv", index=False, encoding="gbk")
+
+    # ================
+    def del_watch_stock_record(self):
+        """
+        删除监控窗口的记录
+        :return:
+        """
+        record = self.ui.tableWidget.selectedItems()
+        if len(record) == 0:
+            return
+        del_row = []
+        for i in range(len(record)):
+            row = record[i].row()
+            del_row.append(row)
+
+        del_row = set(del_row)
+        for row in del_row:
+            item = self.ui.tableWidget.item(row, 0).text()
+            self.need_watch_codes.remove(item)
+        for row in del_row:
+            self.ui.tableWidget.removeRow(row)
+        # 删除完手动更新列表，防止在更新实时价格的时候同时更新监控列表
+        # self.update_watch_code()
+
+
+
 
 
 if __name__ == "__main__":
