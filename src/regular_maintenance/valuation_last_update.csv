@@ -2,8 +2,8 @@ module,date,last_update_code
 update_valuation_by_ts,2019-06-01 00:00:00,0
 B,2019-05-13 00:00:00,0
 update_valuation_by_ts_day,2019-12-05 00:00:00,0
-update_valuation_by_jq_day,2020-01-16 00:00:00,0
-get_AH_ratio,2020-01-16,0
+update_valuation_by_jq_day,2020-04-12 00:00:00,0
+get_AH_ratio,2020-04-12,0
 get_dividend_by_ts,2019-09-25 00:00:00,688388.SH
 update_jq_valuation_by_day,2019-10-15 00:00:00,0
 update_ts_valuation_by_day,2019-10-15 00:00:00,0
