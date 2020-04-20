@@ -89,6 +89,10 @@ class WatchDogMainWindows(QtCore.QObject):
         self.signal_one_time_codes.connect(the_quote_thread.get_one_time_quote)
         the_quote_thread.signal_one_time_quotation.connect(self.update_cb_basic_table)
 
+        #
+        # pushButton_9:将转债基本行情表中的转债添加到监控栏目
+        #
+        self.ui.pushButton_9.clicked.connect(self.add_bond_to_watch)
 
         self.emit_init_code_info()
 
@@ -240,10 +244,36 @@ class WatchDogMainWindows(QtCore.QObject):
         if len(price_list) != 2*rows:
             print("行情返回的价格行情数量与转债基本信息表不匹配，转债表：%d行，返回价格数量:%d" % (rows, len(price_list)/2))
             return
-        df = self.df_cb_stock_total
-        df["bond_price"]
+        bond_price_list = price_list[0: int(len(price_list)/2)]
+        stock_price_list = price_list[int(len(price_list)/2):]
+        self.df_cb_stock_total["bond_price"] = bond_price_list
+        self.df_cb_stock_total["stock_price"] = stock_price_list
+        # 转股价值=（100/转股价 * 实时正股价格 ）
+        # premium=（转债实时价格 - 转股价值 ）/ 转债实时价格
+        self.df_cb_stock_total["convert_value"] = 100 / self.df_cb_stock_total["convert_price"] * \
+                                                  self.df_cb_stock_total["stock_price"]
+        self.df_cb_stock_total["premium"] = (self.df_cb_stock_total["bond_price"] -
+                                             self.df_cb_stock_total["convert_value"]) / \
+                                            self.df_cb_stock_total["convert_value"]
+        # print(self.df_cb_stock_total.head(3))
+        i_row = 0
+        for index, row in self.df_cb_stock_total.iterrows():
+            bond_code = self.ui.tableWidget_2.item(i_row, 0).text()
+            if bond_code != index:
+                print("获取的行情返回bond_code：%s, 表格中的bond_code:%s,不一致" % (index, bond_code))
+                continue
+            item = QtWidgets.QTableWidgetItem(str(row["bond_price"]))
+            self.ui.tableWidget_2.setItem(i_row, 2, item)
 
-
+            premium = round(row["premium"]*100, 2)
+            item = QtWidgets.QTableWidgetItem(str(premium))
+            # 折价的转债标红
+            if row["premium"] < 0:
+                brush = QtGui.QBrush(QtGui.QColor(170, 0, 0))
+                brush.setStyle(QtCore.Qt.NoBrush)
+                item.setForeground(brush)
+            self.ui.tableWidget_2.setItem(i_row, 6, item)
+            i_row = i_row + 1
 
     # =============
 
@@ -401,6 +431,52 @@ class WatchDogMainWindows(QtCore.QObject):
             msgbox.setText(alarm_info)
             msgbox.exec_()
 
+    # ============================
+    def add_bond_to_watch(self):
+        """
+        添加转债到监控列表
+        :return:
+        """
+        position = self.ui.tableWidget_2.selectedItems()
+        if len(position) == 0:
+            return
+        self.add_select_item_to_watch(position)
+        self.ui.tableWidget_2.clearSelection()
+    # =============================
+
+    def add_select_item_to_watch(self, qlist_items):
+        """
+        将选中的items添加到监控窗口
+        :param qlist_items:
+        :return:
+        """
+        row = int(len(qlist_items) / 8)
+        for i in range(row):
+            code = qlist_items[8 * i]
+            name = qlist_items[8 * i + 1]
+            # print("code:%s" % str(code.text()))
+            if str(code.text()) in self.need_watch_codes:
+                msg_box = QtWidgets.QMessageBox()
+                msg_box.setText("name:%s已在监控窗口中" % name.text())
+                msg_box.exec_()
+                continue
+            curr_row = self.ui.tableWidget.rowCount()
+            self.ui.tableWidget.insertRow(curr_row)
+            item = QtWidgets.QTableWidgetItem(code.text())
+            self.ui.tableWidget.setItem(curr_row, 0, item)
+            self.need_watch_codes.append(code.text())
+            item = QtWidgets.QTableWidgetItem(name.text())
+            self.ui.tableWidget.setItem(curr_row, 1, item)
+            # 预设一个高价1000，低价1预警
+            item = QtWidgets.QTableWidgetItem("0.1")
+            self.ui.tableWidget.setItem(curr_row, 2, item)
+            item = QtWidgets.QTableWidgetItem("1000")
+            self.ui.tableWidget.setItem(curr_row, 3, item)
+
+            item = QtWidgets.QTableWidgetItem()
+            item.setCheckState(QtCore.Qt.Unchecked)
+            self.ui.tableWidget.setItem(curr_row, 5, item)
+
     # ==================
     def save_watch_stock(self):
         """
@@ -448,9 +524,6 @@ class WatchDogMainWindows(QtCore.QObject):
             self.ui.tableWidget.removeRow(row)
         # 删除完手动更新列表，防止在更新实时价格的时候同时更新监控列表
         # self.update_watch_code()
-
-
-
 
 
 if __name__ == "__main__":
