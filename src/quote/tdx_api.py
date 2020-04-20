@@ -36,17 +36,64 @@ def get_a_quote_by_tdx(code_list):
     其他的行情使用拓展行情接口
     code_list：数字或者字符串格式的list，调用def standard_tdx_code(code_list)来格式化市场信息及code
     """
-    tmp = standard_tdx_code(code_list)
-    if len(tmp) == 0:
-        return pd.DataFrame(columns=stock_tdx_columns)
 
-    api = TdxHq_API()
-    with api.connect('119.147.212.81', 7709):
-        data = api.to_df(api.get_security_quotes(tmp))
-        data = data[stock_tdx_columns]
-        return process_tdx_price(data)
+    if len(code_list) == 0:
+        return pd.DataFrame(columns=stock_tdx_columns)
+    # 一次最多获取50只股票的实时行情，如果code_list 多于50只，则50只股票取一次行情，然后进行拼接
+    tdx_api = TdxHq_API()
+    if len(code_list) >= 50:
+        tmp = div_list(code_list, 50)
+        df_tmp = pd.DataFrame(columns=stock_tdx_columns)
+        if tdx_api.connect('119.147.212.81', 7709):
+            for tmp_list in tmp:
+                tmp_list = standard_tdx_code(tmp_list)
+                tdx_data = tdx_api.to_df(tdx_api.get_security_quotes(tmp_list))
+                df_tmp = pd.concat([df_tmp, tdx_data])
+            df_tmp = df_tmp[stock_tdx_columns]
+    else:
+        tmp = standard_tdx_code(code_list)
+        if tdx_api.connect('119.147.212.81', 7709):
+            tdx_data = tdx_api.to_df(tdx_api.get_security_quotes(tmp))
+            df_tmp = tdx_data[stock_tdx_columns]
+
+    tdx_api.disconnect()
+    return process_tdx_price(df_tmp)
 
 # =========================================
+
+
+def div_list(list_temp, n):
+    """
+    将输入的列表listTemp分成n等分
+    :param list_temp:
+    :param n:
+    :return:
+    用法：
+    tmp = div_list(list_temp, n)
+    for i in tmp:
+        print(i)
+
+    listTemp = [1,2,3,4,5,6,7,8,9]
+    # func(listTemp, 3)
+
+    # 返回的temp为评分后的每份可迭代对象
+    temp = func(listTemp, 4)
+
+    for i in temp:
+        print(i)
+
+    '''
+    [1, 2, 3, 4]
+    [5, 6, 7, 8]
+    [9]
+    '''
+
+    """
+    for i in range(0, len(list_temp), n):
+        yield list_temp[i:i+n]
+
+
+# ===================
 
 def get_hk_quote_by_tdx(code_list):
     """
@@ -67,7 +114,8 @@ def get_hk_quote_by_tdx(code_list):
     return df
 
 
-#==============================================
+# ==============================================
+
 
 def standard_tdx_code(code_list):
     """
@@ -144,9 +192,26 @@ def process_tdx_price(df):
 if __name__ == "__main__":
     test_code = ["601318", "1", "300002", "159931", "160105", "018003", "18003", "108602", "131810", "204001",
                  "515050", "501057", "123002", "110059"]
-    # df = get_a_quote_by_tdx(test_code)
+    df = get_a_quote_by_tdx(test_code)
 
     hk = ["00005", "09988"]
-    df = get_hk_quote_by_tdx(hk)
+    #df = get_hk_quote_by_tdx(hk)
     print(df)
+
+
+    """
+    tmp = div_list(test_code, 5)
+    for i in tmp:
+        print(i)
+    """
+
+    """
+    api = TdxHq_API()
+    if api.connect('119.147.212.81', 7709):
+        data = api.get_security_bars(9, 0, '000001', 4, 3)
+        print(data)
+        stocks = api.get_security_list(2, 0)
+        print(stocks)
+        api.disconnect()
+    """
 
