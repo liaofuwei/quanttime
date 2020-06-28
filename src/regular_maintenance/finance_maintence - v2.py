@@ -7,10 +7,10 @@ import pandas as pd
 import os
 import sys
 from datetime import datetime, timedelta
+import time
 
 import logging
 import tushare as ts
-
 
 """
 日常维护使用：
@@ -20,14 +20,14 @@ import tushare as ts
 
 3、更新finance数据，finance数据按照valuation，income，cash_flow，balance，indicator5个文件夹分别存储，
    其中20180730之前的数据已经批量获取存储在本地，之后只需要更新维护即可
-  
+
 4、valuation表数据是按日获取
 
 4、income，cash_flow,balance,indicator表分为批量更新与指定code更新
 
 5、20190529增加tushare的每日指标更新，相当于joinquant的valuation
    存储目录为":\\quanttime\\data\\finance\\ts\\valuation\\"
-   
+
 6、20190604增加tushare每日指标更新方式，按日获取所有的股票的valuation，然后分别更新到对应的文件夹
    加快更新的效率
 
@@ -234,7 +234,7 @@ class FinanceMaintenance:
                 print("%s不用更新" % code)
                 return
             q = query(valuation).filter(valuation.code == code)
-            df_data = get_fundamentals_continuously(q, end_date=self.end_date, count=len(trade_range)-1, panel=False)
+            df_data = get_fundamentals_continuously(q, end_date=self.end_date, count=len(trade_range) - 1, panel=False)
             if df_data.empty:
                 print("获取的valuation为空，stock：%s" % code)
                 return
@@ -296,18 +296,19 @@ class FinanceMaintenance:
         print("集中更新图share valuation表结束。")
 
     # ============================================
-    def update_valuation_by_ts_day(self):
+    def update_valuation_by_ts_day(self, debug=False):
         """
+        代码更新：20200624
         tushare可以按天获取所有stock的valuation数据，然后分别更新到对应不同code文件内
         对于相同日期小于500只股票的日期，后面统一采用单只按日获取更新
         当天一次性获取的所有股票的valuation，增加一个文件夹单独存储，按日期命名
         平时更新使用该方法
-        存储目录为"C:\\quanttime\\data\\finance\\ts\\valuation\\"
+        存储目录为"X:\\quanttime\\data\\finance\\ts\\valuation\\"
         因为不用输入ts_code，即不需要首先获取所有股票的code信息
+        :param debug: bool，测试时使用参数(默认为false）
         :return:
         """
-        last_update = pd.read_csv(r'C:\quanttime\src\regular_maintenance\valuation_last_update.csv',
-                                  index_col=["module"], parse_dates=["date"])
+        last_update = pd.read_csv(r'valuation_last_update.csv', index_col=["module"], parse_dates=["date"])
         print(last_update)
         module_name = 'update_valuation_by_ts_day'
         last_update_date = 0
@@ -324,101 +325,39 @@ class FinanceMaintenance:
                     return
             except ValueError:
                 print("记录的最后更新日期格式或记录有误")
+                return
 
-        # 股票基本信息只获取ts_code与list_date
-        stock_basic = self.pro.stock_basic(exchange='', list_status='L', fields='ts_code,list_date')
-        if stock_basic.empty:
-            print("获取ts股票基本信息失败，return")
+        list_trade_date = get_trade_days(start_date=last_update_date, end_date=self.end_date)
+        if len(list_trade_date) <= 1:
             return
-        stock_basic = stock_basic.set_index("ts_code")
-        basic_dir = "C:\\quanttime\\data\\finance\\ts\\valuation\\"
-        columns_name = ['ts_code', 'close', 'turnover_rate', 'turnover_rate_f', 'volume_ratio', 'pe', 'pe_ttm', 'pb',
-                        'ps', 'ps_ttm', 'total_share', 'float_share', 'free_share', 'total_mv', 'circ_mv']
-        valuation_data_last_record = pd.DataFrame(columns=columns_name)
-        valuation_data_last_record.index.name = "trade_date"
-        list_empty_code = []
-        for stock_code in stock_basic.index:
-            # print("process:%s...." % stock_code)
-            valuation_file = basic_dir + stock_code + '.csv'
-            if os.path.exists(valuation_file):
-                valuation_data = pd.read_csv(valuation_file, index_col=["trade_date"], parse_dates=True)
-                if valuation_data.empty:
-                    list_empty_code.append(stock_code)
-                    continue
-                # 提取记录中的最后一条记录
-                valuation_data_last_record = valuation_data_last_record.append(valuation_data.iloc[-1, :])
-                # print("valution len:%d" % len(valuation_data_last_record))
-            else:
-                list_empty_code.append(stock_code)
-        # 更新的截止日期
-        et = datetime.today().date() - timedelta(days=1)
-        et = et.strftime("%Y-%m-%d")
 
-        # 提取最后更新记录时间集
-        list_record_last_date = valuation_data_last_record.index.unique()
-        dic_date_stocks = {}
-        for last_date in list_record_last_date:
-            # same_last_update_stock是具有相同最后更新日期的stock集合
-            same_last_update_stock = valuation_data_last_record.loc[last_date, ["ts_code"]]["ts_code"]
-            if isinstance(same_last_update_stock, str):
-                dic_date_stocks[str(last_date.date())] = valuation_data_last_record.loc[last_date, ["ts_code"]][
-                    "ts_code"]
-            else:
-                dic_date_stocks[str(last_date.date())] = valuation_data_last_record.loc[last_date, ["ts_code"]][
-                    "ts_code"].tolist()
+        basic_dir = self.finance_dir + "ts\\valuation\\"
+        columns_name = ['trade_date', 'ts_code', 'close', 'turnover_rate', 'turnover_rate_f', 'volume_ratio', 'pe',
+                        'pe_ttm', 'pb', 'ps', 'ps_ttm', 'dv_ratio', 'dv_ttm', 'total_share', 'float_share',
+                        'free_share', 'total_mv', 'circ_mv']
 
-        finance_db = self.mongo_client["ts_finance_db"]
-        # 对于某个日期，数量少(小于500只股票)的stock，采取按code，一只一只更新，不采取批量更新的办法
-        list_single_update_by_code = []
-        for last_update_date, stock_codes in dic_date_stocks.items():
-            if len(stock_codes) < 500:
-                list_single_update_by_code.append(stock_codes)
+        for trade_date in list_trade_date:
+            df_tmp = self.pro.daily_basic(ts_code='', trade_date=trade_date.strftime("%Y%m%d"))
+            if df_tmp.empty:
                 continue
-            list_trade_date = trade_date_util.get_trade_date_range(last_update_date, et)
-            if list_trade_date:
-                # get_trade_date_range返回的是闭区间，所有把记录的最后一天的下一天，作为开始更新更新的时间
-                list_trade_date.pop(0)
-                for day in list_trade_date:
-                    tmp = day.split('-')
-                    day = tmp[0] + tmp[1] + tmp[2]
-                    df_update_data = self.pro.daily_basic(ts_code='', trade_date=day)
-                    if df_update_data.empty:
-                        print("%s, 获取当天valuation，返回为空" % day)
-                        continue
-                    # 新增一个按天存储所有股票valuation的文件夹，按照日期命名
-                    tmp_file = "C:\\quanttime\\data\\finance\\ts\\valuation_day\\" + day + ".csv"
-                    df_update_data.to_csv(tmp_file)
-                    df_update_data = df_update_data.set_index("trade_date")
-                    for i in range(len(df_update_data)):
-                        df_stock = pd.DataFrame(data=[df_update_data.iloc[i].values],
-                                                index=pd.Index([df_update_data.index[i]]),
-                                                columns=columns_name)
-                        update_stock_code = df_update_data.iloc[i, df_update_data.columns.get_loc('ts_code')]
-                        if update_stock_code in stock_codes:
-                            print("存储code:%s ...." % update_stock_code)
-                            valuation_file = basic_dir + update_stock_code + '.csv'
-                            df_stock.to_csv(valuation_file, mode='a', header=None)
-                            # 存数据库
-                            table = finance_db[update_stock_code[0:6]]
-                            table.insert_many(df_stock.to_dict(orient="record"))
+            df_tmp = df_tmp[columns_name]
+            df_tmp.to_csv(self.finance_dir + "ts\\valuation_day\\" + trade_date.strftime("%Y%m%d") + ".csv")
+            for i in range(len(df_tmp)):
+                df_stock = pd.DataFrame(data=[df_tmp.iloc[i].values],
+                                        index=pd.Index([df_tmp.index[i]]),
+                                        columns=df_tmp.columns)
+                tmp_name = df_tmp.iloc[i, df_tmp.columns.get_loc('ts_code')]
 
-            print("批量更新结束，本次共更新：%d" % len(stock_codes))
-        tmp_list = []
-        print("需要单只更新的code list:%r" % list_single_update_by_code)
-        for i in list_single_update_by_code:
-            if isinstance(i, list):
-                for j in i:
-                    tmp_list.append(j)
-            else:
-                tmp_list.append(i)
-        list_single_update_by_code = tmp_list
-
-        for i_code in list_single_update_by_code:
-            self.update_valuation_by_ts_by_code(i_code)
+                if debug and (tmp_name != "601318.SH"):
+                    continue
+                print("正在处理批量更新的 %s。。。。" % tmp_name)
+                file_path = basic_dir + tmp_name + '.csv'
+                print(file_path)
+                df_stock.to_csv(file_path, mode='a', header=None, index=False)
 
         # 更新最后更新的时间
-        last_update.loc[module_name, ["date"]] = str(datetime.today().date() - timedelta(days=1))
-        last_update.to_csv(r'C:\quanttime\src\regular_maintenance\valuation_last_update.csv')
+        last_update.loc[module_name, ["date"]] = self.end_date
+        last_update.to_csv(r'valuation_last_update.csv')
         print("本次更新结束")
 
     # =========================================
@@ -472,7 +411,7 @@ class FinanceMaintenance:
             print("tushare 更新valuation数据 完成，code：%s" % ts_code)
 
     # =========================================
-    def update_indicator_by_ts(self):
+    def update_indicator_by_ts(self, debug=False):
         """
         运行时间可以在每年的1-15至4-30 一季报年报
         7-15至8-31 半年报
@@ -481,22 +420,20 @@ class FinanceMaintenance:
         1、存储目录：C:\quanttime\data\finance\ts\indicator
         2、通过tushare获取所有上市股票code--pro.stock_basic
         3、根据上述获取的所有上市股票code，轮询所有code，获取indicator
-        :param report_date: 输入报告期，在第一次获取所有报告期数据，以后每次更新都要输入报告期
-                报告期按照：1231年报，0331一季报 0630半年报 0930三季报
+        :param debug: bool，测试时使用参数(默认为false）
         :return:
 
         """
         # 股票基本信息只获取ts_code与list_date
-        stock_basic = self.pro.stock_basic(exchange='', list_status='L', fields='ts_code,list_date')
-        if stock_basic.empty:
-            print("获取ts股票基本信息失败，return")
-            return
-        stock_basic = stock_basic.set_index("ts_code")
+        stock_basic = self.stock_basic.set_index("ts_code")
+        if debug:
+            stock_code_list = ["601318.SH"]
+        else:
+            stock_code_list = stock_basic.index
 
-        basic_dir = "C:\\quanttime\\data\\finance\\ts\\indicator\\"
-        finance_db = self.mongo_client["ts_indicator_db"]
-        end_date = str(datetime.today().date() - timedelta(days=1))
-        for stock_code in stock_basic.index:
+        basic_dir = self.finance_dir + "\\ts\\indicator\\"
+        end_date = self.end_date.strftime("%Y%m%d")
+        for stock_code in stock_code_list:
             indicator_file = basic_dir + stock_code + '.csv'
             if os.path.exists(indicator_file):
                 indicator_data = pd.read_csv(indicator_file, index_col=['end_date'], parse_dates=True)
@@ -505,19 +442,12 @@ class FinanceMaintenance:
                     if diff.days < 90:
                         print("本次更新时间距离上个季报期间隔小于90天，不用更新")
                         continue
-                    start_date = str(indicator_data.index[-1].date() + timedelta(days=1))
-                    tmp = start_date.split("-")
-                    start_date = tmp[0] + tmp[1] +tmp[2]
-                    end_date = str(datetime.today().date())
-                    tmp = end_date.split("-")
-                    end_date = tmp[0] + tmp[1] + tmp[2]
+                    start_date = indicator_data.index[-1].date() + timedelta(days=1)
+                    start_date = start_date.strftime("%Y%m%d")
                     df_indicator = self.pro.fina_indicator(ts_code=stock_code, start_date=start_date, end_date=end_date)
 
                 else:
                     start_date = "20050101"
-                    end_date = str(datetime.today().date())
-                    tmp = end_date.split("-")
-                    end_date = tmp[0] + tmp[1] + tmp[2]
                     df_indicator = self.pro.fina_indicator(ts_code=stock_code, start_date=start_date, end_date=end_date)
 
                 if df_indicator.empty:
@@ -527,15 +457,9 @@ class FinanceMaintenance:
                 df_indicator = df_indicator.set_index("end_date")
                 df_indicator = df_indicator.sort_index(ascending=True)
                 df_indicator.to_csv(indicator_file, mode='a', header=None)
-                # 存数据库
-                table = finance_db[stock_code[0:6]]
-                table.insert_many(df_indicator.to_dict(orient="record"))
                 print("code:%s indicator数据更新完成" % stock_code)
             else:
                 start_date = "20050101"
-                end_date = str(datetime.today().date())
-                tmp = end_date.split("-")
-                end_date = tmp[0] + tmp[1] + tmp[2]
                 df_indicator = self.pro.fina_indicator(ts_code=stock_code, start_date=start_date, end_date=end_date)
                 if df_indicator.empty:
                     print("code:%s, 第一次取全部indicator为空" % stock_code)
@@ -543,9 +467,6 @@ class FinanceMaintenance:
                 df_indicator = df_indicator.set_index("end_date")
                 df_indicator = df_indicator.sort_index(ascending=True)
                 df_indicator.to_csv(indicator_file)
-                # 存数据库
-                table = finance_db[stock_code[0:6]]
-                table.insert_many(df_indicator.to_dict(orient="record"))
                 print("code:%s 首次获取indicator数据更新完成" % stock_code)
             time.sleep(1)
 
@@ -583,10 +504,12 @@ class FinanceMaintenance:
 
 if __name__ == "__main__":
     regular = FinanceMaintenance()
-    #regular.update_valuation(True)
-    #regular.update_valuation_by_jq_day(True)
-    #regular.update_valuation_jq_by_code("601318.XSHG")
-    regular.update_valuation_by_ts_by_code("000002.SZ")
+    # regular.update_valuation(True)
+    # regular.update_valuation_by_jq_day(True)
+    # regular.update_valuation_jq_by_code("601318.XSHG")
+    # regular.update_valuation_by_ts_by_code("000002.SZ")
+    # regular.update_valuation_by_ts_day(True)
+    regular.update_indicator_by_ts(True)
     # regular.standerSingleUpdateFile("600432.XSHG")
     # regular.drop_duplicate()
     # regular.update()
@@ -602,8 +525,8 @@ if __name__ == "__main__":
     # regular.update_valuation_by_jq_day()
     # regular.update_valuation_jq_by_code("000776.XSHE")
 
-    #update_quar = [str(i) for i in range(2006, 2020)]
-    #for date in update_quar:
+    # update_quar = [str(i) for i in range(2006, 2020)]
+    # for date in update_quar:
     #   regular.batch_update_indicator_year(date)
     # regular.batch_update_indicator("2019q2")
     # regular.get_all_jq_indicator_together()
